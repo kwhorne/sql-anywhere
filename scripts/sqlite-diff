@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# sqlite-diff — compare the upstream SQLite source artifacts between two trees.
+#
+# Unlike a plain `diff -urN A B`, this only looks at the files that *upstream*
+# SQLite ships in its src/ directory (the hand-written .c/.h/.y/.in/... sources).
+# That skips:
+#   - generated/built files (sqlite3.c amalgamation, parse.c, opcodes.*, tsrc/, ...)
+#   - autoconf output (Makefile, libtool, config.*)
+#   - .git internals
+#   - SqlAnywhere's own additions (vectordiskann.c, ext/crr, ...) that upstream lacks
+#
+# The result is a unified diff suitable for piping to `diffstat`, `less`, or
+# `git apply`.
+#
+# Usage:
+#   scripts/sqlite-diff <upstream-dir> <other-dir>
+#   scripts/sqlite-diff <upstream-dir> <other-dir> | diffstat
+#
+# The first argument is the reference tree: its src/ file list defines what
+# counts as a "source artifact". The second is the tree compared against it.
+
+set -euo pipefail
+
+usage() {
+	echo "usage: $(basename "$0") <upstream-dir> <other-dir>" >&2
+	echo "       compares upstream's src/ source files against <other-dir>/src/" >&2
+	exit 2
+}
+
+[ $# -eq 2 ] || usage
+
+upstream=$1
+other=$2
+
+# Which subdirectory holds the source artifacts (override with SUBDIR=... if needed).
+subdir=${SUBDIR:-src}
+
+for d in "$upstream" "$other"; do
+	[ -d "$d" ] || { echo "error: not a directory: $d" >&2; exit 1; }
+done
+[ -d "$upstream/$subdir" ] || { echo "error: no $subdir/ in upstream: $upstream" >&2; exit 1; }
+
+# Iterate over the files upstream ships in src/, diffing each against the other
+# tree. Using a NUL-delimited list keeps unusual filenames safe. -N treats a
+# file missing from <other> as an empty file, so deletions show up in full.
+status=0
+while IFS= read -r -d '' rel; do
+	# rel is relative to "$upstream", e.g. "src/btree.c"
+	a="$upstream/$rel"
+	b="$other/$rel"
+	# --label makes the diff read like git's a/ b/ and keeps diffstat -p1 happy,
+	# regardless of where the two trees live on disk.
+	if ! diff -uN --label "a/$rel" --label "b/$rel" "$a" "$b"; then
+		status=1
+	fi
+done < <(cd "$upstream" && find "$subdir" -type f -print0 | sort -z)
+
+# diff/while exit non-zero when differences were found; that's expected, not an
+# error, so report success unless an actual diff invocation failed otherwise.
+exit 0

@@ -1,0 +1,109 @@
+# 2026 sqlanywhere
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# This file implements regression tests for the sqlanywhere_stmt_interrupt()
+# API, which interrupts a single prepared statement rather than every
+# statement on the connection the way sqlite3_interrupt() does.
+#
+# The interesting property is that an interrupt requested while a statement
+# is *executing* (inside sqlite3_step()) is observed from within the VDBE
+# loop, not merely at the next entry to sqlite3_step().  Like interrupt.test,
+# this is exercised deterministically via the ::sqlite_stmt_interrupt_count
+# test variable: when positive it is decremented once per VDBE opcode and,
+# on reaching zero, fires sqlanywhere_stmt_interrupt() on the running statement.
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set DB [sqlite3_connection_pointer db]
+
+# A table large enough that a scan/join loops through the VDBE's
+# check_for_interrupt label far more than 100 times, so that the small
+# trigger values below all land mid-execution.  (Note: the queries below scan
+# the rows -- e.g. sum(a) -- rather than bare count(*), which the planner
+# satisfies with a single OP_Count opcode and never loops.)
+do_test interruptstmt-1.0 {
+  execsql {
+    CREATE TABLE t1(a);
+    WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM c WHERE i<400)
+      INSERT INTO t1 SELECT i FROM c;
+    SELECT count(*) FROM t1;
+  }
+} {400}
+
+# Run $sql with the statement-interrupt trigger armed to fire after $n VDBE
+# opcodes.  Returns a list of {errorcode catchsql-result}.
+proc run_with_trigger {sql n} {
+  set ::sqlite_stmt_interrupt_count $n
+  set r [catchsql $sql]
+  set ::sqlite_stmt_interrupt_count 0
+  list [db errorcode] $r
+}
+
+# For a statement that runs many opcodes, arming the trigger at a low count
+# must abort it mid-execution with SQLITE_INTERRUPT -- and must never set the
+# connection-wide interrupt flag (that is the whole point of doing this at the
+# statement level rather than with sqlite3_interrupt()).
+foreach {tn sql} {
+  1 {SELECT sum(a) FROM t1}
+  2 {SELECT count(*) FROM t1 a, t1 b}
+} {
+  foreach n {1 2 5 20 100} {
+    do_test interruptstmt-2.$tn.$n.rc {
+      run_with_trigger $sql $n
+    } {9 {1 interrupted}}
+    do_test interruptstmt-2.$tn.$n.flag {
+      sqlite3_is_interrupted $DB
+    } 0
+  }
+}
+
+# With the trigger set higher than the whole program, the statement runs to
+# completion and returns the correct result.
+do_test interruptstmt-3.1 {
+  run_with_trigger {SELECT sum(a) FROM t1} 1000000
+} {0 {0 80200}}
+do_test interruptstmt-3.2 {
+  run_with_trigger {SELECT count(*) FROM t1 a, t1 b} 100000000
+} {0 {0 160000}}
+
+# The checks above confirm the statement ends in SQLITE_INTERRUPT, but a
+# trailing sqlite3_step() would report that at step entry even if the running
+# step had been allowed to finish first.  To prove the interrupt is honored
+# *mid-execution* (the in-loop check, not just the step-entry check), count how
+# many rows the scan actually visited via a Tcl function and confirm it stopped
+# well short of the full table.
+set ::nrows 0
+proc rowtick {} { incr ::nrows; return 1 }
+db function rowtick -argcount 0 rowtick
+
+do_test interruptstmt-5.1 {
+  set ::nrows 0
+  set r [run_with_trigger {SELECT count(*) FROM t1 WHERE rowtick()} 50]
+  list $r [expr {$::nrows>0 && $::nrows<400}]
+} {{9 {1 interrupted}} 1}
+
+# Sanity check the instrument: without an interrupt the same scan visits every
+# row.
+do_test interruptstmt-5.2 {
+  set ::nrows 0
+  set r [run_with_trigger {SELECT count(*) FROM t1 WHERE rowtick()} 100000000]
+  list $r $::nrows
+} {{0 {0 400}} 400}
+
+# After all of the above the connection must be left un-interrupted, and a
+# fresh statement runs normally.
+do_test interruptstmt-4.1 {
+  sqlite3_is_interrupted $DB
+} 0
+do_test interruptstmt-4.2 {
+  execsql {SELECT count(*) FROM t1}
+} {400}
+
+finish_test

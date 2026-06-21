@@ -29,7 +29,7 @@ elyra db shell http://127.0.0.1:8080
 
 ## Download a prebuilt binary
 
-The [sqlanywhere-server release page](https://github.com/elyra/sql-anywhere/releases) for this repository lists released versions of sqld
+The [sqlanywhere-server release page](https://github.com/kwhorne/sql-anywhere/releases) for this repository lists released versions of sqld
 along with downloads for macOS and Linux.
 
 ## Build and install with Homebrew
@@ -60,18 +60,18 @@ sqld --help
 ## Using a prebuilt Docker image
 
 The sqld release process publishes a Docker image to the GitHub Container
-Registry. The URL is <https://ghcr.io/elyra/sqlanywhere-server>. You can run the latest image locally
+Registry. The URL is <https://ghcr.io/kwhorne/sqlanywhere-server>. You can run the latest image locally
 on port 8080 with the following:
 
 ```bash
-docker run -p 8080:8080 -d ghcr.io/elyra/sqlanywhere-server:latest
+docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:latest
 ```
 
 Or you can run a specific version using one of the [sqld container release
-tags](https://github.com/elyra/sql-anywhere/pkgs/container/sqlanywhere-server) in the following form for version X.Y.Z:
+tags](https://github.com/kwhorne/sql-anywhere/pkgs/container/sqlanywhere-server) in the following form for version X.Y.Z:
 
 ```bash
-docker run -p 8080:8080 -d ghcr.io/elyra/sqlanywhere-server:vX.Y.Z
+docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:vX.Y.Z
 ```
 
 ## Build from source using Docker / Podman

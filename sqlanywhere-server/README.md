@@ -34,10 +34,10 @@ cargo xtask test
 
 The following client libraries enable your app to query `sqld` programmatically:
 
-* [TypeScript and JavaScript](https://github.com/elyra/sql-anywhere-client-ts)
+* [TypeScript and JavaScript](https://github.com/kwhorne/sql-anywhere-client-ts)
 * [Rust](https://github.com/sqlanywhere/sqlanywhere-client-rs)
-* [Go](https://github.com/elyra/sql-anywhere-client-go)
-* [Python](https://github.com/elyra/sql-anywhere-python)
+* [Go](https://github.com/kwhorne/sql-anywhere-client-go)
+* [Python](https://github.com/kwhorne/sql-anywhere-python)
 
 ## SQLite extensions support
 

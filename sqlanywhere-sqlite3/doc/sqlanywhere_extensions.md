@@ -315,7 +315,7 @@ Write-ahead log is a journaling mode which enables nice write concurrency charac
 ### API
 
 In order to register a new set of virtual WAL methods, these methods need to be implemented. This is the current API:
-<https://github.com/elyra/sql-anywhere/blob/main/sqlanywhere-sqlite3/src/wal.h>
+<https://github.com/kwhorne/sql-anywhere/blob/main/sqlanywhere-sqlite3/src/wal.h>
 
 ### Registering WAL methods
 

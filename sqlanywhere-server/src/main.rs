@@ -349,7 +349,7 @@ impl Cli {
         eprintln!("build date: {}", env!("VERGEN_BUILD_DATE"));
         eprintln!();
         eprintln!("This software is in BETA version.");
-        eprintln!("If you encounter any bug, please open an issue at https://github.com/elyra/sql-anywhere/issues");
+        eprintln!("If you encounter any bug, please open an issue at https://github.com/kwhorne/sql-anywhere/issues");
         eprintln!();
 
         eprintln!("config:");

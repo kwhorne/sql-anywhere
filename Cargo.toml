@@ -29,7 +29,7 @@ version = "0.1.0"
 authors = ["the SQL Anywhere authors"]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/elyra/sql-anywhere"
+repository = "https://github.com/kwhorne/sql-anywhere"
 
 [workspace.dependencies]
 sqlanywhere-ffi = { path = "sqlanywhere-ffi", version = "0.1.0" }

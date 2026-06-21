@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 keywords = ["sqlanywhere", "sqlite", "s3", "wal", "replication"]
-repository = "https://github.com/elyra/sql-anywhere"
+repository = "https://github.com/kwhorne/sql-anywhere"
 readme = "bottomless/README.md"
 description = "Bottomless replication for SqlAnywhere"
 

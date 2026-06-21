@@ -65,7 +65,7 @@
 //!
 //! ## Examples
 //!
-//! You can find more examples in the [`examples`](https://github.com/elyra/sql-anywhere/tree/main/sqlanywhere/examples) directory.
+//! You can find more examples in the [`examples`](https://github.com/kwhorne/sql-anywhere/tree/main/sqlanywhere/examples) directory.
 //!
 //! ## Feature flags
 //!

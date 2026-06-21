@@ -7,7 +7,7 @@
 ```console
 docker run --name some-sqld -p 8080:8080 -ti \
     -e SQLD_NODE=primary \
-    ghcr.io/elyra/sqlanywhere-server:latest
+    ghcr.io/kwhorne/sqlanywhere-server:latest
 ```
 
 ## Launch a replica instance
@@ -16,7 +16,7 @@ docker run --name some-sqld -p 8080:8080 -ti \
 docker run --name some-sqld-replica -p 8081:8080 -ti \
     -e SQLD_NODE=replica \
     -e SQLD_PRIMARY_URL=https://<host>:<port> \
-    ghcr.io/elyra/sqlanywhere-server:latest
+    ghcr.io/kwhorne/sqlanywhere-server:latest
 ```
 
 ## Running on Apple Silicon
@@ -25,16 +25,16 @@ docker run --name some-sqld-replica -p 8081:8080 -ti \
 docker run --name some-sqld  -p 8080:8080 -ti \
     -e SQLD_NODE=primary \
     --platform linux/amd64 \
-    ghcr.io/elyra/sqlanywhere-server:latest
+    ghcr.io/kwhorne/sqlanywhere-server:latest
 ```
 
 _Note: the latest images for arm64 are available under the tag
-`ghcr.io/elyra/sqlanywhere-server:latest-arm`, however for tagged versions,
+`ghcr.io/kwhorne/sqlanywhere-server:latest-arm`, however for tagged versions,
 and stable releases please use the x86_64 versions via Rosetta._
 
 ## Docker Repository
 
-[https://github.com/elyra/sql-anywhere/pkgs/container/sqlanywhere-server](https://github.com/elyra/sql-anywhere/pkgs/container/sqlanywhere-server)
+[https://github.com/kwhorne/sql-anywhere/pkgs/container/sqlanywhere-server](https://github.com/kwhorne/sql-anywhere/pkgs/container/sqlanywhere-server)
 
 # How to extend this image
 
@@ -48,18 +48,18 @@ mount on your local disk.
 docker run --name some-sqld -ti \
     -v $(pwd)/sqld-data:/var/lib/sqld \ # you can mount local path
     -e SQLD_NODE=primary \
-    ghcr.io/elyra/sqlanywhere-server:latest
+    ghcr.io/kwhorne/sqlanywhere-server:latest
 
 docker run --name some-sqld -ti \
     -v sqld-data:/var/lib/sqld \ # or create named volume
     -e SQLD_NODE=primary \
-    ghcr.io/elyra/sqlanywhere-server:latest
+    ghcr.io/kwhorne/sqlanywhere-server:latest
 
 docker run --name some-sqld -ti \
     -v sqld-data:/data/sqld \ # to mount data in different directory set SQLD_DB_PATH env var
     -e SQLD_NODE=primary \
     -e SQLD_DB_PATH=/data/sqld \
-    ghcr.io/elyra/sqlanywhere-server:latest
+    ghcr.io/kwhorne/sqlanywhere-server:latest
 ```
 
 ## Authentication
@@ -124,7 +124,7 @@ Simple docker compose for local development:
 ```yaml
 services:
   db:
-    image: ghcr.io/elyra/sqlanywhere-server:latest
+    image: ghcr.io/kwhorne/sqlanywhere-server:latest
     platform: linux/amd64
     ports:
       - "8080:8080"

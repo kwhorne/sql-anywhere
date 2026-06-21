@@ -1,4 +1,4 @@
-// https://github.com/elyra/sql-anywhere/blob/main/docs/HRANA_3_SPEC.md#cursor-entries
+// https://github.com/kwhorne/sql-anywhere/blob/main/docs/HRANA_3_SPEC.md#cursor-entries
 
 use crate::hrana::proto::{Batch, BatchResult, Col, StmtResult, Value};
 use crate::hrana::{CursorResponseError, HranaError, Result, Row};

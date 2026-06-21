@@ -3,7 +3,7 @@
 <h1 align="center">SQL Anywhere</h1>
 
 <p align="center">
-  <strong>An embeddable, replication-ready SQL engine built on SQLite — maintained by <a href="https://elyra.dev">Elyra</a>.</strong>
+  <strong>An embeddable, replication-ready SQL engine built on SQLite — maintained by <a href="https://elyracode.com">Elyra</a>.</strong>
 </p>
 
 <p align="center">

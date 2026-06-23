@@ -279,7 +279,7 @@ SQLITE3DLL = sqlite3.dll
 !IF $(FOR_WIN10)!=0
 SQLITE3LIB = winsqlite3.lib
 !ELSE
-SQLITE3LIB = sqlite3.lib
+SQLITE3LIB =
 !ENDIF
 !ENDIF
 

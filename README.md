@@ -164,8 +164,8 @@ Connected to a transient in-memory database.
 sqlanywhere>
 ```
 
-Running the server and Docker images are covered in
-[docs/BUILD-RUN.md](docs/BUILD-RUN.md) and [docs/DOCKER.md](docs/DOCKER.md).
+Running the server (and downloading prebuilt `sqld` binaries) is covered in
+[docs/BUILD-RUN.md](docs/BUILD-RUN.md).
 
 ## Documentation
 

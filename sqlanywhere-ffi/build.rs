@@ -267,6 +267,16 @@ pub fn build_bundled(out_dir: &str, out_path: &Path) {
     } else {
         cfg.flag("-DSQLITE_EXTRA_INIT=core_init");
 
+        // Several sqlean sources (e.g. crypto/sha2.c) determine endianness from
+        // GCC/Clang builtins like __ORDER_LITTLE_ENDIAN__, which MSVC does not
+        // provide. Windows targets are little-endian, so define the BSD-style
+        // endian macros explicitly for the MSVC toolchain.
+        if env::var("TARGET").unwrap_or_default().contains("windows") {
+            cfg.define("LITTLE_ENDIAN", "1234");
+            cfg.define("BIG_ENDIAN", "4321");
+            cfg.define("BYTE_ORDER", "1234");
+        }
+
         let mut sqlean_sources = Vec::new();
         for pattern in sqlean_patterns {
             let full_pattern = format!("{BUNDLED_DIR}/sqlean/{}", pattern);

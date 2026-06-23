@@ -19,7 +19,7 @@ jobs:
             artifact_name: crsqlite.zip
             asset_name: crsqlite-linux-x86_64.zip
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
 

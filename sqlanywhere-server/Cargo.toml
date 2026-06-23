@@ -1,6 +1,7 @@
 [package]
 name = "sqlanywhere-server"
 version = "0.1.0"
+description = "SQL Anywhere server (sqld) — SQLite over HTTP, WebSockets, and gRPC"
 edition = "2021"
 default-run = "sqld"
 repository = "https://github.com/kwhorne/sql-anywhere"

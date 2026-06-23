@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: elyra/sqlanywhere-server
+  IMAGE_NAME: kwhorne/sqlanywhere-server
 
 jobs:
   build-amd64:

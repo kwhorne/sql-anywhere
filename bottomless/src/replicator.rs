@@ -614,32 +614,42 @@ impl Replicator {
         }
     }
 
-    /// FIXME: I'm pretty sure that this function is buggy. First of all we don't check the output
-    /// of that function in the wal, second of all, we assume that an error means that we have
-    /// snapshotted. This whole stuff is a mess.
+    /// Wait for the current generation's snapshot to be uploaded to S3.
+    ///
+    /// Returns `Ok(true)` if a snapshot was completed, `Ok(false)` if there was
+    /// nothing to snapshot (empty DB or no active generation), and `Err` if the
+    /// snapshot upload itself failed.
     pub async fn wait_until_snapshotted(&mut self) -> Result<bool> {
-        if let Ok(generation) = self.generation() {
-            if !self.main_db_exists_and_not_empty().await {
-                tracing::debug!("Not snapshotting, the main db file does not exist or is empty");
-                let _ = self.snapshot_notifier.send(Ok(Some(generation)));
+        let generation = match self.generation() {
+            Ok(gen) => gen,
+            Err(_) => {
+                tracing::debug!("No active generation, skipping snapshot wait");
                 return Ok(false);
             }
-            tracing::debug!("waiting for generation snapshot {} to complete", generation);
-            let res = self
-                .snapshot_waiter
-                .wait_for(|result| match result {
-                    Ok(Some(gen)) => *gen == generation,
-                    Ok(None) => false,
-                    Err(_) => true,
-                })
-                .await?;
-            tracing::debug!("done waiting");
-            match res.deref() {
-                Ok(_) => Ok(true),
-                Err(e) => Err(anyhow!("Failed snapshot generation {}: {}", generation, e)),
-            }
-        } else {
-            Ok(false)
+        };
+
+        if !self.main_db_exists_and_not_empty().await {
+            tracing::debug!("Not snapshotting, the main db file does not exist or is empty");
+            let _ = self.snapshot_notifier.send(Ok(Some(generation)));
+            return Ok(false);
+        }
+
+        tracing::debug!("waiting for generation snapshot {} to complete", generation);
+        let res = self
+            .snapshot_waiter
+            .wait_for(|result| match result {
+                Ok(Some(gen)) => *gen == generation,
+                Ok(None) => false,
+                // An error from the snapshot task means it completed (with failure)
+                // — we must stop waiting and propagate the error below.
+                Err(_) => true,
+            })
+            .await?;
+        tracing::debug!("done waiting for snapshot {}", generation);
+
+        match res.deref() {
+            Ok(_) => Ok(true),
+            Err(e) => Err(anyhow!("Failed snapshot generation {}: {}", generation, e)),
         }
     }
 

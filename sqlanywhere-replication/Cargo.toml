@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Replication protocol for SqlAnywhere"
+description = "Replication protocol for SQL Anywhere"
 
 [dependencies]
 tonic = { version = "0.11", default-features = false, features = ["codegen", "prost"] }

@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The SqlAnywhere database library"
+description = "The SQL Anywhere database library"
 
 [dependencies]
 tracing = { version = "0.1.37", default-features = false }

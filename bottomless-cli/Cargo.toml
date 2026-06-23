@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT"
 keywords = ["sqlanywhere", "sqlite", "s3", "cli", "replication"]
 repository = "https://github.com/kwhorne/sql-anywhere"
-description = "Command-line interface for bottomless replication for SqlAnywhere"
+description = "Command-line interface for bottomless replication for SQL Anywhere"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

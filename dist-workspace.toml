@@ -10,7 +10,7 @@ ci = "github"
 # The installers to generate for each app
 installers = ["shell", "homebrew"]
 # A GitHub repo to push Homebrew formulas to
-tap = "sqlanywhere/homebrew-sqld"
+tap = "kwhorne/homebrew-sqld"
 # Customize the Homebrew formula name
 formula = "sqld"
 # Target platforms to build apps for (Rust target-triple syntax)

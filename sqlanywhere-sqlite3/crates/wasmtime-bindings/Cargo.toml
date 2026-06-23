@@ -3,8 +3,8 @@ name = "sqlanywhere-wasmtime-bindings"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Wasmtime bindings for SqlAnywhere user-defined functions"
-keywords = ["SqlAnywhere", "Wasmtime", "Wasm", "WebAssembly", "SQLite"]
+description = "Wasmtime bindings for SQL Anywhere user-defined functions"
+keywords = ["sqlanywhere", "wasmtime", "wasm", "webassembly", "sqlite"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

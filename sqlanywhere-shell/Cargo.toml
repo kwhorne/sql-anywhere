@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 keywords = ["sqlanywhere", "sqlite", "cli", "database", "shell"]
-description = "Command-line interface for SqlAnywhere - an open-source and open-contribution fork of SQLite"
+description = "Command-line interface for SQL Anywhere - an open-source and open-contribution fork of SQLite"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

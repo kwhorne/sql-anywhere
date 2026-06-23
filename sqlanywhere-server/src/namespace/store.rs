@@ -235,11 +235,9 @@ impl NamespaceStore {
             return Err(crate::error::Error::NamespaceAlreadyExist(to.to_string()));
         }
 
-        // FIXME: we could potentially delete the namespace while trying to fork it
-        if !self.inner.metadata.exists(&from).await {
-            return Err(crate::Error::NamespaceDoesntExist(from.to_string()));
-        }
-
+        // The source namespace's existence is checked under lock below (from_lock.is_some()),
+        // which avoids the TOCTOU race of a concurrent delete between an early existence
+        // check and the actual load.
         let from_config = self.inner.metadata.handle(from.clone()).await;
         let from_entry = self
             .load_namespace(&from, from_config.clone(), RestoreOption::Latest)

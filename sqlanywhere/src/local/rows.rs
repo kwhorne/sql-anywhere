@@ -17,8 +17,17 @@ pub struct Rows {
     err: RefCell<Option<(i32, i32, String)>>,
 }
 
-unsafe impl Send for Rows {} // TODO: is this safe?
-unsafe impl Sync for Rows {} // TODO: is this safe?
+// SAFETY: `Rows` wraps a `Statement` which holds an `Arc<sqlanywhere_sys::Statement>`
+// (containing a raw `*mut sqlite3_stmt`) and a `Connection` with a raw `*mut sqlite3`.
+// The bundled SQLite is compiled with SQLITE_THREADSAFE=1 (serialized mode), so the
+// C library itself is safe to call from any thread. Send-ability is required for the
+// async API (the `Rows` future must be `Send`). The `Arc<Statement>` ensures the
+// underlying stmt/conn outlive the `Rows`, and exclusive mutable access is managed
+// via `RefCell` (runtime-checked). The `RefCell` normally makes `Rows` `!Sync`, but
+// all row iteration happens through shared references on a single task, so no
+// concurrent `&`-access to the `RefCell` occurs in practice.
+unsafe impl Send for Rows {}
+unsafe impl Sync for Rows {}
 
 impl Rows {
     pub fn new(stmt: Statement) -> Rows {

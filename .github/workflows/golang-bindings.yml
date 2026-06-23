@@ -23,7 +23,7 @@ jobs:
           - 8080:8080
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     # needed because we run out of disk space during tests
     - name: Free Disk Space (Ubuntu)
@@ -45,7 +45,7 @@ jobs:
       uses: arduino/setup-protoc@v2
 
     - name: Set up cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       continue-on-error: false
       with:
         path: |
@@ -61,9 +61,9 @@ jobs:
       run: cargo b -j16 --release -p sql-experimental
 
     - name: go-sqlanywhere checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
-        repository: elyra/go-sqlanywhere
+        repository: kwhorne/go-sqlanywhere
         ref: "main"
         path: "go-sqlanywhere"
 

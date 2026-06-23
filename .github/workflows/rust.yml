@@ -29,7 +29,7 @@ jobs:
       - uses: hecrj/setup-rust-action@v2
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -44,7 +44,7 @@ jobs:
           tool: protoc@${{ env.PROTOC_VERSION }}
 
       - name: Set up cargo cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         continue-on-error: false
         with:
           path: |
@@ -57,16 +57,10 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --check
+        run: cargo fmt --check
 
       - name: Cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all-targets --all-features
+        run: cargo check --all-targets --all-features
 
       - name: Test openssl
         shell: bash {0}
@@ -85,7 +79,7 @@ jobs:
     name: Check features and unused dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-udeps
@@ -123,10 +117,10 @@ jobs:
       with:
         tool: nextest
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       continue-on-error: false
       with:
         path: |
@@ -171,10 +165,10 @@ jobs:
   #     with:
   #       tool: nextest
 
-  #   - uses: actions/checkout@v3
+  #   - uses: actions/checkout@v4
 
   #   - name: Set up cargo cache
-  #     uses: actions/cache@v3
+  #     uses: actions/cache@v4
   #     continue-on-error: false
   #     with:
   #       path: |
@@ -218,10 +212,10 @@ jobs:
       with:
         tool: nextest
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       continue-on-error: false
       with:
         path: |
@@ -240,11 +234,11 @@ jobs:
     steps:
       - uses: hecrj/setup-rust-action@v2
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Set up cargo cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         continue-on-error: false
         with:
           path: |
@@ -279,10 +273,10 @@ jobs:
   #         # when set to "true" but frees about 6 GB
   #         tool-cache: true
 
-  #     - uses: actions/checkout@v3
+  #     - uses: actions/checkout@v4
 
   #     - name: Set up cargo cache
-  #       uses: actions/cache@v3
+  #       uses: actions/cache@v4
   #       continue-on-error: false
   #       with:
   #         path: |

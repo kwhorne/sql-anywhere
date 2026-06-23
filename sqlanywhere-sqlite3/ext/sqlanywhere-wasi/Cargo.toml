@@ -3,7 +3,7 @@ name = "sqlanywhere-wasi"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "WASI support for SqlAnywhere"
+description = "WASI support for SQL Anywhere"
 keywords = ["webassembly", "wasm", "wasi", "sqlanywhere", "sqlite"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

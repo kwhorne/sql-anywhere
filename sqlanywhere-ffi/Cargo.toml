@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Native bindings to SqlAnywhere"
+description = "Native bindings to SQL Anywhere"
 build = "build.rs"
 exclude = [
   "bundled/SQLite3MultipleCiphers/build",

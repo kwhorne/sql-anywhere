@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Homebrew
         id: set-up-homebrew
@@ -20,7 +20,7 @@ jobs:
 
       - name: Brew install tap
         run: |
-          brew tap sqlanywhere/sqld
+          brew tap kwhorne/sqld
           brew install sqlanywhere-server
 
       - name: Verify CLI installation

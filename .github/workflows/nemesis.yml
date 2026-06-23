@@ -13,7 +13,7 @@ env:
 jobs:
   test-nemesis:
     runs-on: ubuntu-latest
-    if: github.repository == 'elyra/sql-anywhere'
+    if: github.repository == 'kwhorne/sql-anywhere'
     name: Run Nemesis Tests
     env:
       RUSTFLAGS: -D warnings --cfg tokio_unstable
@@ -36,10 +36,10 @@ jobs:
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up cargo cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         continue-on-error: false
         with:
           path: |
@@ -65,9 +65,9 @@ jobs:
           minio --version
 
       - name: Nemesis tests checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          repository: elyra/elyratest
+          repository: kwhorne/elyratest
           ref: "main"
           path: "nemesis-tests"
           token: ${{ secrets.ACCESS_TOKEN_TURSO_TEST }}

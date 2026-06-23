@@ -279,7 +279,7 @@ SQLITE3DLL = sqlite3.dll
 !IF $(FOR_WIN10)!=0
 SQLITE3LIB = winsqlite3.lib
 !ELSE
-SQLITE3LIB =
+SQLITE3LIB = sqlanywhere.lib
 !ENDIF
 !ENDIF
 
@@ -1021,7 +1021,7 @@ SHELL_COMPILE_OPTS = $(SHELL_COMPILE_OPTS) -DSQLITE_STRICT_SUBTYPE=1
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
 #
-core:	dll shell
+core:	dll sqlanywhere.lib shell
 
 # Targets that require the Tcl library.
 #

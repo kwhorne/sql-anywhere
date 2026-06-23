@@ -326,7 +326,7 @@ SQLITE3DLL = sqlite3.dll
 !IF $(FOR_WIN10)!=0
 SQLITE3LIB = winsqlite3.lib
 !ELSE
-SQLITE3LIB = sqlite3.lib
+SQLITE3LIB = sqlanywhere.lib
 !ENDIF
 !ENDIF
 
@@ -720,7 +720,7 @@ SHELL_CORE_SRC = $(SQLITE3C)
 SHELL_CORE_DEP = $(SQLITE3DLL)
 # <<mark>>
 !ELSEIF $(USE_AMALGAMATION)==0
-SHELL_CORE_DEP = sqlite3.lib
+SHELL_CORE_DEP = sqlanywhere.lib
 # <</mark>>
 !ELSE
 SHELL_CORE_DEP =
@@ -743,7 +743,7 @@ TESTFIXTURE_DEP = zlib $(TESTFIXTURE_DEP)
 SHELL_CORE_LIB = $(SQLITE3LIB)
 # <<mark>>
 !ELSEIF $(USE_AMALGAMATION)==0
-SHELL_CORE_LIB = sqlite3.lib
+SHELL_CORE_LIB = sqlanywhere.lib
 # <</mark>>
 !ELSE
 SHELL_CORE_LIB =
@@ -1833,7 +1833,7 @@ ALL_TCL_TARGETS =
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
 #
-core:	dll sqlite3.lib shell
+core:	dll sqlanywhere.lib shell
 
 # Targets that require the Tcl library.
 #
@@ -1852,11 +1852,11 @@ dll:	$(SQLITE3DLL)
 shell:	$(SQLITE3EXE)
 
 # <<mark>>
-sqlite3.lib:	$(LIBOBJ)
+sqlanywhere.lib:	$(LIBOBJ)
 	$(LTLIB) $(LTLIBOPTS) /OUT:$@ $(LIBOBJ) $(TLIBS)
 
 libtclsqlite3.lib:	tclsqlite.lo sqlite3.lib
-	$(LTLIB) $(LTLIBOPTS) $(TCLLIBPATHS) $(LTLIBPATHS) /OUT:$@ tclsqlite.lo sqlite3.lib $(LIBTCLSTUB) $(TLIBS)
+	$(LTLIB) $(LTLIBOPTS) $(TCLLIBPATHS) $(LTLIBPATHS) /OUT:$@ tclsqlite.lo sqlanywhere.lib $(LIBTCLSTUB) $(TLIBS)
 
 tclsqlite3.def:	tclsqlite.lo
 	echo EXPORTS > tclsqlite3.def
@@ -1891,9 +1891,9 @@ $(SQLITE3DLL):	$(LIBOBJ) $(LIBRESOBJS) $(CORE_LINK_DEP)
 	$(LD) $(LDFLAGS) $(LTLINKOPTS) $(LTLIBPATHS) /DLL $(CORE_LINK_OPTS) /OUT:$@ $(LIBOBJ) $(LIBRESOBJS) $(LTLIBS) $(TLIBS)
 
 # <<block2>>
-sqlite3.def:	sqlite3.lib
+sqlite3.def:	sqlanywhere.lib
 	echo EXPORTS > sqlite3.def
-	dumpbin /all sqlite3.lib \
+	dumpbin /all sqlanywhere.lib \
 		| $(TCLSH_CMD) $(TOP)\tool\replace.tcl include "^\s+1 _?(sqlite3(?:session|changeset|changegroup|rebaser|rbu)?_[^@]*)(?:@\d+)?$$" \1 \
 		| sort >> sqlite3.def
 # <</block2>>

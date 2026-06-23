@@ -249,6 +249,8 @@ jobs:
             ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-registry-
+      - name: Install cmake
+        uses: lukka/get-cmake@latest
       - name: Install x86_64-pc-windows-msvc target
         run: rustup target add x86_64-pc-windows-msvc
       - name: build sqlanywhere all features

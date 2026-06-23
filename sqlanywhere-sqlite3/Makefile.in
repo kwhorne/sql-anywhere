@@ -723,7 +723,7 @@ libtclsqlite3.la_1 = libtclsqlite3.la
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
 #
-all:	sqlite3.h sqlite3.la libsqlanywhere.la $(SQLITE3_SHELL_TARGET) \
+all:	sqlite3.h libsqlanywhere.la libsqlanywhere.la $(SQLITE3_SHELL_TARGET) \
   $(libtclsqlite3.la_$(HAVE_TCL))
 
 Makefile: $(TOP)/Makefile.in
@@ -735,17 +735,13 @@ sqlite3.pc: $(TOP)/sqlite3.pc.in
 sqlanywhere.pc: $(TOP)/sqlanywhere.pc.in
 	./config.status
 
-sqlite3.la:	$(LIBOBJ) $(OPT_WASM_RUNTIME_LIBRARY_TARGET)
-	$(LTLINK) -no-undefined -o $@ $(LIBOBJ) $(TLIBS) \
-		${ALLOWRELEASE} -rpath "$(libdir)" -version-info "8:6:8"
-
 libsqlanywhere.la:	$(LIBOBJ) $(OPT_WASM_RUNTIME_LIBRARY_TARGET)
 	$(LTLINK) -no-undefined -o $@ $(LIBOBJ) $(TLIBS) \
 		${ALLOWRELEASE} -rpath "$(libdir)" -version-info "8:6:8"
 
 libtclsqlite3.la:	tclsqlite.lo sqlite3.la
 	$(LTLINK) -no-undefined -o $@ tclsqlite.lo \
-		sqlite3.la @TCL_STUB_LIB_SPEC@ $(TLIBS) \
+		libsqlanywhere.la @TCL_STUB_LIB_SPEC@ $(TLIBS) \
 		-rpath "$(TCLLIBDIR)" \
 		-version-info "8:6:8" \
 		-avoid-version
@@ -1242,9 +1238,9 @@ tclsqlite-shell.lo:	$(TOP)/src/tclsqlite.c $(HDR)
 tclsqlite-stubs.lo:	$(TOP)/src/tclsqlite.c $(HDR)
 	$(LTCOMPILE) -DUSE_TCL_STUBS=1 -o $@ -c $(TOP)/src/tclsqlite.c
 
-tclsqlite3$(TEXE):	has_tclconfig tclsqlite-shell.lo sqlite3.la
+tclsqlite3$(TEXE):	has_tclconfig tclsqlite-shell.lo libsqlanywhere.la
 	$(LTLINK) -o $@ tclsqlite-shell.lo \
-		 sqlite3.la $(LIBTCL)
+		 libsqlanywhere.la $(LIBTCL)
 
 # Rules to build opcodes.c and opcodes.h
 #
@@ -1430,7 +1426,7 @@ TESTFIXTURE_FLAGS += -DSQLITE_CKSUMVFS_STATIC
 TESTFIXTURE_FLAGS += -DSQLITE_STATIC_RANDOMJSON
 TESTFIXTURE_FLAGS += -DSQLITE_STRICT_SUBTYPE=1
 
-TESTFIXTURE_SRC0 = $(TESTSRC2) sqlite3.la
+TESTFIXTURE_SRC0 = $(TESTSRC2) libsqlanywhere.la
 TESTFIXTURE_SRC1 = sqlite3.c
 TESTFIXTURE_SRC = $(TESTSRC) $(TOP)/src/tclsqlite.c
 TESTFIXTURE_SRC += $(TESTFIXTURE_SRC$(USE_AMALGAMATION))
@@ -1632,8 +1628,8 @@ kvtest$(TEXE):	$(TOP)/test/kvtest.c sqlite3.c
 rbu$(EXE): $(TOP)/ext/rbu/rbu.c $(TOP)/ext/rbu/sqlite3rbu.c sqlite3.lo
 	$(LTLINK) -I. -o $@ $(TOP)/ext/rbu/rbu.c sqlite3.lo $(TLIBS)
 
-loadfts$(EXE): $(TOP)/tool/loadfts.c sqlite3.la
-	$(LTLINK) $(TOP)/tool/loadfts.c sqlite3.la -o $@ $(TLIBS)
+loadfts$(EXE): $(TOP)/tool/loadfts.c libsqlanywhere.la
+	$(LTLINK) $(TOP)/tool/loadfts.c libsqlanywhere.la -o $@ $(TLIBS)
 
 # This target will fail if the SQLite amalgamation contains any exported
 # symbols that do not begin with "sqlite3_". It is run as part of the
@@ -1700,8 +1696,8 @@ libsqlanywhere_install:	libsqlanywhere.la $(OPT_WASM_RUNTIME_INSTALL_TARGET)
 	$(INSTALL) -d $(DESTDIR)$(libdir)
 	$(LTINSTALL) libsqlanywhere.la $(DESTDIR)$(libdir)
 
-lib_install:	sqlite3.la libsqlanywhere_install
-	$(LTINSTALL) sqlite3.la $(DESTDIR)$(libdir)
+lib_install:	libsqlanywhere.la libsqlanywhere_install
+	$(LTINSTALL) libsqlanywhere.la $(DESTDIR)$(libdir)
 
 # Use $(tcl_install_$(HAVE_TCL)) to resolve to either tclextension-install or
 # an empty value.

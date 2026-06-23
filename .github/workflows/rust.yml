@@ -249,14 +249,12 @@ jobs:
             ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-registry-
-      - name: Install cmake
-        uses: lukka/get-cmake@latest
       - name: Install x86_64-pc-windows-msvc target
         run: rustup target add x86_64-pc-windows-msvc
-      - name: build sqlanywhere all features
+      - name: build sqlanywhere (default features, no encryption on Windows)
         run: |
           cargo clean -p sqlanywhere-ffi
-          cargo build -p sqlanywhere --all-features --release --target x86_64-pc-windows-msvc
+          cargo build -p sqlanywhere --release --target x86_64-pc-windows-msvc
 
   # test-rust-wasm:
   #   runs-on: ubuntu-latest

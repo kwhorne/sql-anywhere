@@ -255,7 +255,10 @@ pub fn build_bundled(out_dir: &str, out_path: &Path) {
     if cfg!(feature = "sqlean-extension-regexp") {
         enabled_extensions.push("regexp");
         sqlean_patterns.push("regexp/*.c");
-        sqlean_patterns.push("regexp/pcre2/pcre2_internal.h");
+        // NOTE: only compile the .c sources here. Passing the pcre2_internal.h
+        // header to the C compiler produces a bogus `pcre2_internal.o` that the
+        // macOS linker rejects ("not a mach-o file"); the .c files include the
+        // header via the added include path instead.
         sqlean_patterns.push("regexp/pcre2/*.c");
     }
 
@@ -271,9 +274,15 @@ pub fn build_bundled(out_dir: &str, out_path: &Path) {
         }
 
         if cfg!(feature = "sqlean-extension-regexp") {
-            // PCRE2 needs some macroses defined externally in constants.h file
-            cfg.flag("-include")
-                .flag(format!("{BUNDLED_DIR}/sqlean/regexp/constants.h"));
+            // PCRE2 needs some macros defined externally in constants.h before
+            // pcre2.h is included. Use the toolchain-appropriate force-include
+            // flag: MSVC uses /FI, GCC/Clang use -include.
+            let constants = format!("{BUNDLED_DIR}/sqlean/regexp/constants.h");
+            if env::var("TARGET").unwrap_or_default().contains("msvc") {
+                cfg.flag(format!("/FI{constants}"));
+            } else {
+                cfg.flag("-include").flag(constants);
+            }
         }
 
         cfg.files(sqlean_sources);

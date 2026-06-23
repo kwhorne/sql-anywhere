@@ -369,7 +369,7 @@ struct sqlite3_api_routines {
 };
 
 struct sqlanywhere_api_routines {
-  /* SqlAnywhere 0.1.0 */
+  /* SqlAnywhere 0.2.0 */
   void *(*close_hook)(sqlite3*, void(*)(void*,sqlite3*), void *pArg);
 };
 
@@ -702,7 +702,7 @@ typedef int (*sqlite3_loadext_entry)(
 #define sqlite3_is_interrupted         sqlite3_api->is_interrupted
 /* Version 3.43.0 and later */
 #define sqlite3_stmt_explain           sqlite3_api->stmt_explain
-/* SqlAnywhere 0.1.0 */
+/* SqlAnywhere 0.2.0 */
 #define sqlanywhere_close_hook              sqlanywhere_api->close_hook
 /* Version 3.44.0 and later */
 #define sqlite3_get_clientdata         sqlite3_api->get_clientdata

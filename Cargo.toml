@@ -25,18 +25,18 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 authors = ["the SQL Anywhere authors"]
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/kwhorne/sql-anywhere"
 
 [workspace.dependencies]
-sqlanywhere-ffi = { path = "sqlanywhere-ffi", version = "0.1.0" }
-sqlanywhere-sys = { path = "sqlanywhere-sys", version = "0.1.0", default-features = false }
-sqlanywhere-hrana = { path = "sqlanywhere-hrana", version = "0.1.0" }
-sqlanywhere_replication = { path = "sqlanywhere-replication", version = "0.1.0" }
-rusqlite = { package = "sqlanywhere-rusqlite", path = "vendored/rusqlite", version = "0.1.0", default-features = false, features = [
+sqlanywhere-ffi = { path = "sqlanywhere-ffi", version = "0.2.0" }
+sqlanywhere-sys = { path = "sqlanywhere-sys", version = "0.2.0", default-features = false }
+sqlanywhere-hrana = { path = "sqlanywhere-hrana", version = "0.2.0" }
+sqlanywhere_replication = { path = "sqlanywhere-replication", version = "0.2.0" }
+rusqlite = { package = "sqlanywhere-rusqlite", path = "vendored/rusqlite", version = "0.2.0", default-features = false, features = [
     "sqlanywhere-experimental",
     "column_decltype",
     "load_extension",

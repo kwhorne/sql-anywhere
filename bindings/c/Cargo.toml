@@ -1,6 +1,6 @@
 [package]
 name = "sqlanywhere-experimental"
-version = "0.1.0"
+version = "0.2.0"
 description = "Experimental C bindings for SQL Anywhere"
 edition = "2021"
 

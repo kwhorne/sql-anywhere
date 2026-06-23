@@ -1,7 +1,7 @@
 [package]
 name = "sqlanywhere-rusqlite"
 # Note: Update version in README.md when you change this.
-version = "0.1.0"
+version = "0.2.0"
 authors = ["The rusqlite developers"]
 edition = "2018"
 description = "Ergonomic wrapper for SQLite (sqlanywhere fork)"

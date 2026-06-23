@@ -1,0 +1,89 @@
+name: Server binaries
+
+# Builds prebuilt `sqld` binaries for macOS, Windows and Ubuntu (Linux) and
+# attaches them to the GitHub release for the pushed tag. Satisfies the
+# "Download a prebuilt binary" section of docs/BUILD-RUN.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach binaries to (e.g. v0.2.0)"
+        required: true
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build sqld (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS (Apple Silicon)
+          - os: macos-14
+            target: aarch64-apple-darwin
+          # macOS (Intel)
+          - os: macos-13
+            target: x86_64-apple-darwin
+          # Ubuntu (Intel)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          # Ubuntu (ARM)
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          # Windows (Intel)
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libclang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Build sqld
+        run: cargo build -p sqlanywhere-server --bin sqld --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          set -eux
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          name="sqld-${tag}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp README.md LICENSE.md CHANGELOG.md "dist/$name/" 2>/dev/null || true
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/sqld.exe" "dist/$name/"
+            7z a "${name}.zip" "./dist/$name"
+            echo "asset=${name}.zip" >> "$GITHUB_OUTPUT"
+          else
+            cp "target/${{ matrix.target }}/release/sqld" "dist/$name/"
+            tar -C dist -czf "${name}.tar.gz" "$name"
+            echo "asset=${name}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: ${{ steps.package.outputs.asset }}
+          fail_on_unmatched_files: true

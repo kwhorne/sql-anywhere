@@ -1,6 +1,7 @@
 name: C bindings tests CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
   pull_request:

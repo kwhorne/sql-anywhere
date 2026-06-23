@@ -1,6 +1,6 @@
 [package]
 name = "sqlanywhere-wasmtime-bindings"
-version = "0.2.2"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Wasmtime bindings for SqlAnywhere user-defined functions"
@@ -18,9 +18,3 @@ crate-type = ["lib", "cdylib", "staticlib"]
 doc = false
 test = false
 doctest = false
-
-[profile.release]
-opt-level = "s"
-strip = true
-debug = false
-panic = "abort"

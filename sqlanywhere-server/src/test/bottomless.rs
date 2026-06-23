@@ -4,7 +4,8 @@ use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use aws_sdk_s3::Client;
 use futures_core::Future;
 use itertools::Itertools;
-use sqlanywhere_client::{Connection, QueryResult, Statement, Value};
+use sqlanywhere::Value;
+use std::collections::HashMap;
 use s3s::auth::SimpleAuth;
 use s3s::service::S3ServiceBuilder;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -414,20 +415,61 @@ async fn assert_updates(connection_addr: &Url, row_count: usize, ops_count: usiz
                 &Value::Integer(i),
                 &Value::Text(format!("{}-{}", base + i, update))
             ),
-            "unexpected values for row {}: ({})",
+            "unexpected values for row {}: ({:?})",
             i,
             name
         );
     }
 }
 
+/// Minimal result shim so the assertions below keep using `into_result_set()`,
+/// `.rows` and `row.cells["name"]` while the queries run through the in-tree
+/// `sqlanywhere` client instead of an external client crate.
+struct QueryResult {
+    set: ResultSet,
+}
+
+impl QueryResult {
+    fn into_result_set(self) -> Result<ResultSet> {
+        Ok(self.set)
+    }
+}
+
+struct ResultSet {
+    rows: Vec<ResultRow>,
+}
+
+struct ResultRow {
+    cells: HashMap<String, Value>,
+}
+
 async fn sql<I, S>(url: &Url, stmts: I) -> Result<Vec<QueryResult>>
 where
     I: IntoIterator<Item = S>,
-    S: Into<Statement>,
+    S: AsRef<str>,
 {
-    let db = sqlanywhere_client::reqwest::Connection::connect_from_url(url)?;
-    db.batch(stmts).await
+    let db = sqlanywhere::Builder::new_remote(url.to_string(), String::new())
+        .build()
+        .await?;
+    let conn = db.connect()?;
+
+    let mut results = Vec::new();
+    for stmt in stmts {
+        let mut rows = conn.query(stmt.as_ref(), ()).await?;
+        let mut result_rows = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mut cells = HashMap::new();
+            for idx in 0..row.column_count() {
+                let name = row.column_name(idx).unwrap_or_default().to_string();
+                cells.insert(name, row.get_value(idx)?);
+            }
+            result_rows.push(ResultRow { cells });
+        }
+        results.push(QueryResult {
+            set: ResultSet { rows: result_rows },
+        });
+    }
+    Ok(results)
 }
 
 async fn s3_config() -> aws_sdk_s3::config::Config {

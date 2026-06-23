@@ -15,7 +15,7 @@ exclude = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sqlanywhere-wasmtime-bindings = { package = "libsql-wasmtime-bindings", version = "0.2.1", optional = true }
+sqlanywhere-wasmtime-bindings = { path = "../sqlanywhere-sqlite3/crates/wasmtime-bindings", optional = true }
 
 [build-dependencies]
 cmake = "0.1.54"

@@ -2898,31 +2898,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libsql-client"
-version = "0.6.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c7b1c078b4d3d45ba0db91accc23dcb8d2761d67f819efd94293065597b7ac8"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.21.7",
- "num-traits",
- "reqwest",
- "serde_json",
- "url",
-]
-
-[[package]]
-name = "libsql-wasmtime-bindings"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c4794ff21e37f83839dad45f8c7977b071315f18705cf73badc9850b9fb6b6f"
-dependencies = [
- "wasmtime",
- "wasmtime-wasi",
-]
-
-[[package]]
 name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4754,7 +4729,7 @@ dependencies = [
  "cc",
  "cmake",
  "glob",
- "libsql-wasmtime-bindings",
+ "sqlanywhere-wasmtime-bindings",
 ]
 
 [[package]]
@@ -4837,7 +4812,6 @@ dependencies = [
  "insta",
  "itertools 0.10.5",
  "jsonwebtoken",
- "libsql-client",
  "md-5",
  "metrics",
  "metrics-exporter-prometheus",
@@ -4930,6 +4904,14 @@ dependencies = [
  "js-sys",
  "sqlanywhere",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "sqlanywhere-wasmtime-bindings"
+version = "0.1.0"
+dependencies = [
+ "wasmtime",
+ "wasmtime-wasi",
 ]
 
 [[package]]

@@ -274,14 +274,18 @@ pub fn build_bundled(out_dir: &str, out_path: &Path) {
         }
 
         if cfg!(feature = "sqlean-extension-regexp") {
-            // PCRE2 needs some macros defined externally in constants.h before
-            // pcre2.h is included. Use the toolchain-appropriate force-include
-            // flag: MSVC uses /FI, GCC/Clang use -include.
-            let constants = format!("{BUNDLED_DIR}/sqlean/regexp/constants.h");
-            if env::var("TARGET").unwrap_or_default().contains("msvc") {
-                cfg.flag(format!("/FI{constants}"));
-            } else {
-                cfg.flag("-include").flag(constants);
+            // PCRE2 needs these macros defined before pcre2.h is included. The
+            // sqlean source ships them in regexp/constants.h, but force-including
+            // a relative-path header is not portable across toolchains (MSVC /FI
+            // vs GCC/Clang -include, plus path resolution differences). Define
+            // them directly instead — cc maps `define` to the correct -D / /D
+            // flag for every compiler, and they apply to every file in this cfg.
+            cfg.define("PCRE2_CODE_UNIT_WIDTH", "8");
+            cfg.define("LINK_SIZE", "2");
+            cfg.define("HAVE_CONFIG_H", None);
+            cfg.define("SUPPORT_UNICODE", None);
+            if env::var("TARGET").unwrap_or_default().contains("windows") {
+                cfg.define("PCRE2_STATIC", None);
             }
         }
 

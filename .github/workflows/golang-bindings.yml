@@ -57,8 +57,8 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: ${{ runner.os }}-cargo-
 
-    - name: Build sql-experimental
-      run: cargo b -j16 --release -p sql-experimental
+    - name: Build sqlanywhere-experimental
+      run: cargo b -j16 --release -p sqlanywhere-experimental
 
     - name: go-sqlanywhere checkout
       uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
         ref: "main"
         path: "go-sqlanywhere"
 
-    - name: Copy sql-experimental library to go-sqlanywhere
+    - name: Copy sqlanywhere-experimental library to go-sqlanywhere
       run: cp target/release/sqlanywhere_experimental.a go-sqlanywhere/lib/darwin_arm64/
            && cp target/release/sqlanywhere_experimental.a go-sqlanywhere/lib/linux_amd64/
            && cp target/release/sqlanywhere_experimental.a go-sqlanywhere/lib/linux_arm64/

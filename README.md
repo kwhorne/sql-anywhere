@@ -120,13 +120,34 @@ xtask/                  build automation (cargo xtask ...)
 
 ## Building from source
 
-Requires the Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml)
-(currently **1.85.0**). Building the encryption feature additionally needs
-`cmake`.
+### Prerequisites
+
+| Tool | Needed for |
+|------|------------|
+| **Rust** (pinned in [`rust-toolchain.toml`](rust-toolchain.toml), currently **1.85.0**) | everything — `rustup` installs it automatically |
+| **C compiler** (`cc`/`clang`) | the bundled SQLite amalgamation |
+| **`libclang`** | `bindgen` (FFI bindings in `sqlanywhere-sys`) |
+| **`protoc`** (Protocol Buffers compiler) | `sqlanywhere-server`'s gRPC interfaces |
+| **`cmake`** | only the `encryption` feature (builds SQLite3MultipleCiphers) |
+
+Install the system packages:
 
 ```sh
-# Build the Rust workspace
+# Debian/Ubuntu
+sudo apt-get install -y build-essential cmake libclang-dev protobuf-compiler
+
+# macOS (Homebrew)
+brew install cmake llvm protobuf
+```
+
+### Build
+
+```sh
+# Build the Rust workspace (no cmake required)
 cargo build --release
+
+# Build with at-rest encryption support (requires cmake)
+cargo build --release -p sqlanywhere --features encryption
 
 # Build the SQLite-compatible C library and CLI tools
 cargo xtask build

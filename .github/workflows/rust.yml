@@ -33,6 +33,16 @@ jobs:
         with:
           submodules: recursive
 
+      # --all-features builds the `encryption` feature (cmake), bindgen
+      # (libclang) and the server's gRPC interfaces (protoc).
+      - name: Install build deps
+        run: sudo apt update && sudo apt install -y libclang-dev cmake
+
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@${{ env.PROTOC_VERSION }}
+
       - name: Set up cargo cache
         uses: actions/cache@v3
         continue-on-error: false
@@ -102,7 +112,7 @@ jobs:
         tool-cache: true
 
     - name: Install deps
-      run: sudo apt update && sudo apt install -y libclang-dev
+      run: sudo apt update && sudo apt install -y libclang-dev cmake
 
     - name: Install protoc
       uses: taiki-e/install-action@v2
@@ -197,7 +207,7 @@ jobs:
         tool-cache: true
 
     - name: Install deps
-      run: sudo apt update && sudo apt install -y libclang-dev
+      run: sudo apt update && sudo apt install -y libclang-dev cmake
 
     - name: Install protoc
       uses: taiki-e/install-action@v2

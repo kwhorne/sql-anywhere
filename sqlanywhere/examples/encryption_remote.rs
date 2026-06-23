@@ -3,7 +3,7 @@
 // This example shows how to connect to a Elyra Cloud database with
 // remote encryption using the rust driver.
 //
-// Documentation of encrypted databases - https://docs.elyracode.com/cloud/encryption
+// Documentation of encrypted databases - https://elyracode.com/docs/sqlanywhere/cloud/encryption
 //
 // Usage:
 //

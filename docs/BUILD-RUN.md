@@ -21,7 +21,7 @@ Use the `--help` flag to discover how to change its runtime behavior.
 You can query sqld using one of the provided [client
 libraries](../sqlanywhere-server#client-libraries).
 
-You can also use the [elyra cli](https://docs.elyracode.com/reference/elyra-cli) to connect to the sqld instance:
+You can also use the [elyra cli](https://elyracode.com/docs/sqlanywhere/reference/elyra-cli) to connect to the sqld instance:
 
 ```console
 elyra db shell http://127.0.0.1:8080

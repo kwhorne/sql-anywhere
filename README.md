@@ -11,7 +11,7 @@
   <a href="#whats-in-the-box">What's in the box</a> ·
   <a href="#repository-layout">Repository layout</a> ·
   <a href="#building-from-source">Building</a> ·
-  <a href="/docs">Docs</a> ·
+  <a href="https://elyracode.com/docs/sqlanywhere">Docs</a> ·
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT" /></a>
 </p>
 
@@ -146,6 +146,9 @@ Running the server and Docker images are covered in
 [docs/BUILD-RUN.md](docs/BUILD-RUN.md) and [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Documentation
+
+Full documentation lives at **<https://elyracode.com/docs/sqlanywhere>**. The
+in-repo specs and guides below are the source references:
 
 - [User guide](docs/USER_GUIDE.md) · [Design overview](docs/DESIGN.md) · [Consistency model](docs/CONSISTENCY_MODEL.md)
 - Protocol specs: [Hrana 3](docs/HRANA_3_SPEC.md), [HTTP v2](docs/HTTP_V2_SPEC.md), [Admin API](docs/ADMIN_API.md)

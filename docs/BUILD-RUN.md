@@ -34,13 +34,15 @@ release attaches a `sqld` binary for:
 | Platform | Architecture | Asset |
 |----------|--------------|-------|
 | macOS | Apple Silicon (arm64) | `sqld-<tag>-aarch64-apple-darwin.tar.gz` |
-| macOS | Intel (x86_64) | `sqld-<tag>-x86_64-apple-darwin.tar.gz` |
 | Ubuntu / Linux | Intel (x86_64) | `sqld-<tag>-x86_64-unknown-linux-gnu.tar.gz` |
 | Ubuntu / Linux | ARM (aarch64) | `sqld-<tag>-aarch64-unknown-linux-gnu.tar.gz` |
-| Windows | Intel (x86_64) | `sqld-<tag>-x86_64-pc-windows-msvc.zip` |
 
 Download the archive for your platform, extract it, and run the `sqld`
-executable (`sqld.exe` on Windows).
+executable.
+
+> Windows is not currently supported as a prebuilt target — sqld's
+> replication layer depends on Unix-only file APIs. Build from source with
+> Rust if you need to run on other platforms.
 
 ## Build and install with Homebrew
 
@@ -72,8 +74,9 @@ sqld --help
 To build from source, you must have a Rust development environment installed and
 available in your PATH.
 
-Currently we only support building sqld on macOS and Linux (including WSL). We
-are working native Windows build instructions.
+Currently we only support building sqld on macOS and Linux (including WSL).
+Native Windows is not supported because sqld's replication layer relies on
+Unix-only file APIs; use WSL on Windows.
 
 ### 1. Clone this repo
 

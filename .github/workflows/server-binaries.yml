@@ -1,8 +1,12 @@
 name: Server binaries
 
-# Builds prebuilt `sqld` binaries for macOS, Windows and Ubuntu (Linux) and
-# attaches them to the GitHub release for the pushed tag. Satisfies the
+# Builds prebuilt `sqld` binaries for macOS (Apple Silicon) and Ubuntu (Intel +
+# ARM) and attaches them to the GitHub release for the pushed tag. Satisfies the
 # "Download a prebuilt binary" section of docs/BUILD-RUN.md.
+#
+# Windows is intentionally not built: sqld's replication/WAL layer relies on
+# Unix-only positional file I/O (pread/pwrite) and atomic rename. Porting that
+# to Windows is tracked as a separate effort.
 
 on:
   workflow_dispatch:
@@ -34,9 +38,6 @@ jobs:
           # Ubuntu (ARM)
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-          # Windows (Intel)
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,15 +69,9 @@ jobs:
           name="sqld-${tag}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp README.md LICENSE.md CHANGELOG.md "dist/$name/" 2>/dev/null || true
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/sqld.exe" "dist/$name/"
-            7z a "${name}.zip" "./dist/$name"
-            echo "asset=${name}.zip" >> "$GITHUB_OUTPUT"
-          else
-            cp "target/${{ matrix.target }}/release/sqld" "dist/$name/"
-            tar -C dist -czf "${name}.tar.gz" "$name"
-            echo "asset=${name}.tar.gz" >> "$GITHUB_OUTPUT"
-          fi
+          cp "target/${{ matrix.target }}/release/sqld" "dist/$name/"
+          tar -C dist -czf "${name}.tar.gz" "$name"
+          echo "asset=${name}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2

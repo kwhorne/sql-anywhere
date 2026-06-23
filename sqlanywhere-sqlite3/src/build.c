@@ -5924,7 +5924,7 @@ void sqlanywhere_create_function(
 
   sqlanywhere_try_initialize_wasm_func_table(pParse->db);
 
-  Token table = {"sqlanywhere_wasm_func_table", 22};
+  Token table = {"sqlanywhere_wasm_func_table", 27};
   Token name = {"name", 4};
   Token body = {"body", 4};
 
@@ -5997,7 +5997,7 @@ void sqlanywhere_drop_function(
   Token *pName,      /* Function name */
   int noErr          /* Suppress error messages if FUNCTION does not exist */
 ) {
-  Token table = {"sqlanywhere_wasm_func_table", 22};
+  Token table = {"sqlanywhere_wasm_func_table", 27};
   SrcList* tab_list = sqlite3SrcListAppend(pParse, NULL, &table, NULL);
   if (!tab_list) {
     sqlite3ErrorMsg(pParse, "Failed to allocate tab list");

@@ -67,7 +67,7 @@ jobs:
 
     - name: copy lib
       working-directory: bindings/c
-      run: cp ../../target/release/libsqlanywhere_experimental.a .
+      run: cp ../../target/release/libsqlanywhere_experimental.a sqlanywhere_experimental.a
 
     - name: clean rust
       run: cargo clean

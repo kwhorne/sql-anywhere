@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use futures::stream::Stream;
-use sqlanywhere_hrana::proto;
 use parking_lot::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
+use sqlanywhere_hrana::proto;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task;

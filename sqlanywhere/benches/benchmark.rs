@@ -1,8 +1,8 @@
 #![allow(deprecated)]
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
-use sqlanywhere::Database;
 use pprof::criterion::{Output, PProfProfiler};
+use sqlanywhere::Database;
 use tokio::runtime;
 
 fn open_in_memory() -> Database {

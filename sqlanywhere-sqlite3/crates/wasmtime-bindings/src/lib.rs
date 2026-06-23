@@ -169,7 +169,9 @@ pub fn sqlanywhere_run_wasm(
             let arg = unsafe { *argv.offset(i as isize) };
             match unsafe { ((*api).sqlanywhere_value_type)(arg) } as i8 {
                 SQLANYWHERE_INTEGER => {
-                    vals.push(Val::I64(unsafe { ((*api).sqlanywhere_value_int)(arg) } as i64))
+                    vals.push(Val::I64(
+                        unsafe { ((*api).sqlanywhere_value_int)(arg) } as i64
+                    ))
                 }
                 SQLANYWHERE_FLOAT => vals.push(Val::F64(
                     unsafe { ((*api).sqlanywhere_value_double)(arg) }.to_bits(),
@@ -261,7 +263,9 @@ pub fn sqlanywhere_run_wasm(
 
         match result {
             Val::I64(v) => unsafe { ((*api).sqlanywhere_result_int)(sqlanywhere_ctx, v as i32) },
-            Val::F64(v) => unsafe { ((*api).sqlanywhere_result_double)(sqlanywhere_ctx, f64::from_bits(v)) },
+            Val::F64(v) => unsafe {
+                ((*api).sqlanywhere_result_double)(sqlanywhere_ctx, f64::from_bits(v))
+            },
             Val::I32(v) => {
                 let v = v as usize;
                 match memory.data(&store)[v] as i8 {
@@ -299,7 +303,9 @@ pub fn sqlanywhere_run_wasm(
                             )
                         }
                     }
-                    SQLANYWHERE_NULL => unsafe { ((*api).sqlanywhere_result_null)(sqlanywhere_ctx) },
+                    SQLANYWHERE_NULL => unsafe {
+                        ((*api).sqlanywhere_result_null)(sqlanywhere_ctx)
+                    },
                     _ => return Err(format!("Malformed result type byte")),
                 }
             }
@@ -311,7 +317,11 @@ pub fn sqlanywhere_run_wasm(
     match run_wasm(engine, module) {
         Ok(_) => {}
         Err(err) => unsafe {
-            ((*api).sqlanywhere_result_error)(sqlanywhere_ctx, err.as_ptr() as *const u8, err.len() as i32);
+            ((*api).sqlanywhere_result_error)(
+                sqlanywhere_ctx,
+                err.as_ptr() as *const u8,
+                err.len() as i32,
+            );
         },
     }
 }

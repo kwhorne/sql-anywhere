@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use hyper_rustls::TlsAcceptor;
-use sqlanywhere_replication::rpc::replication::replication_log_server::ReplicationLogServer;
-use sqlanywhere_replication::rpc::replication::{BoxReplicationService, NAMESPACE_METADATA_KEY};
 use rustls::server::AllowAnyAuthenticatedClient;
 use rustls::RootCertStore;
+use sqlanywhere_replication::rpc::replication::replication_log_server::ReplicationLogServer;
+use sqlanywhere_replication::rpc::replication::{BoxReplicationService, NAMESPACE_METADATA_KEY};
 use tonic::Status;
 use tower::util::option_layer;
 use tower::ServiceBuilder;

@@ -249,7 +249,7 @@ endif
 sqlite3-jni.c := $(dir.src.c)/sqlite3-jni.c
 sqlite3-jni.o := $(dir.bld.c)/sqlite3-jni.o
 sqlite3-jni.h   := $(dir.src.c)/sqlite3-jni.h
-package.dll := $(dir.bld.c)/sqlanywhereite3-jni.so
+package.dll := $(dir.bld.c)/sqlite3-jni.so
 # All javac-generated .h files must be listed in $(sqlite3-jni.h.in):
 sqlite3-jni.h.in :=
 # $(java.with.jni) lists all Java files which contain JNI decls:
@@ -402,7 +402,7 @@ $(package.jar): $(CLASS_FILES.jar) $(MAKEFILE) $(package.jar.in)
 	@rm -f $(dir.src)/c/*~ $(dir.src.jni)/*~
 	cd $(dir.src); $(bin.jar) -cfe ../$@ org.sqlite.jni.capi.Tester1 @$(package.jar.in)
 	@ls -la $@
-	@echo "To use this jar you will need the -Djava.library.path=DIR/CONTAINING/sqlanywhereite3-jni.so flag."
+	@echo "To use this jar you will need the -Djava.library.path=DIR/CONTAINING/sqlite3-jni.so flag."
 	@echo "e.g. java -Djava.library.path=bld -jar $@"
 
 jar: $(package.jar)

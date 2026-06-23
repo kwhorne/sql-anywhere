@@ -13,13 +13,13 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     apt install --yes \
       bundler \
       libpq-dev \
-      sqlanywhereite3-dev \
+      sqlite3-dev \
       nodejs \
       protobuf-compiler 
   elif [ "$ID" = "fedora" ]; then
     dnf install -y \
       libpq-devel \
-      sqlanywhereite3x-devel \
+      sqlite3x-devel \
       nodejs \
       npm \
       protobuf-compiler \

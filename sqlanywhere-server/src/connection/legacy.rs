@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use sqlanywhere_sys::wal::wrapper::{WrapWal, WrappedWal};
-use sqlanywhere_sys::wal::{BusyHandler, CheckpointCallback, Wal, WalManager};
-use sqlanywhere_sys::EncryptionConfig;
 use parking_lot::Mutex;
 use rusqlite::ffi::SQLITE_BUSY;
 use rusqlite::{ErrorCode, OpenFlags};
+use sqlanywhere_sys::wal::wrapper::{WrapWal, WrappedWal};
+use sqlanywhere_sys::wal::{BusyHandler, CheckpointCallback, Wal, WalManager};
+use sqlanywhere_sys::EncryptionConfig;
 use tokio::time::Duration;
 
 use crate::error::Error;

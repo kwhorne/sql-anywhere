@@ -1,7 +1,7 @@
 use hyper::StatusCode;
 use insta::{assert_debug_snapshot, assert_json_snapshot};
-use sqlanywhere::Database;
 use serde_json::json;
+use sqlanywhere::Database;
 use tempfile::tempdir;
 use tokio::time::Duration;
 use turmoil::Builder;

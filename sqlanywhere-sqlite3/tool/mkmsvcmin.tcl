@@ -105,7 +105,7 @@ foreach i [lsort -integer [array names blocks]] {
 }
 
 set data [string map [list " -I\$(TOP)\\src" ""] $data]
-set data [string map [list " sqlanywhereite3.lib" ""] $data]
+set data [string map [list " sqlite3.lib" ""] $data]
 set data [string map [list " \$(ALL_TCL_TARGETS)" ""] $data]
 set data [string map [list "\$(TOP)\\src\\" "\$(TOP)\\"] $data]
 

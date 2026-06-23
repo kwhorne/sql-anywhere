@@ -1,2 +1,2 @@
-sqlanywhereite3-sys/sqlite3/* linguist-vendored
-sqlanywhereite3-sys/sqlcipher/* linguist-vendored
+sqlite3-sys/sqlite3/* linguist-vendored
+sqlite3-sys/sqlcipher/* linguist-vendored

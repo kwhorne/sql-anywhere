@@ -420,7 +420,11 @@ async fn insert_rows(conn: &Connection, start: u32, count: u32) -> sqlanywhere::
     Ok(())
 }
 
-async fn insert_rows_with_args(conn: &Connection, start: u32, count: u32) -> sqlanywhere::Result<()> {
+async fn insert_rows_with_args(
+    conn: &Connection,
+    start: u32,
+    count: u32,
+) -> sqlanywhere::Result<()> {
     for i in start..(start + count) {
         let stmt = conn.prepare("INSERT INTO test(a, b) VALUES(?,?)").await?;
         stmt.execute(params![i, i]).await?;

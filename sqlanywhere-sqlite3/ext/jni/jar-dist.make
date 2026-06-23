@@ -39,7 +39,7 @@ SQLITE_OPT = \
   -DSQLITE_ENABLE_FTS5 \
   -DSQLITE_DEBUG
 
-sqlite3-jni.dll = sqlanywhereite3-jni.so
+sqlite3-jni.dll = sqlite3-jni.so
 $(sqlite3-jni.dll):
 	@echo "************************************************************************"; \
 	echo  "*** If this fails to build, be sure to edit this makefile            ***"; \

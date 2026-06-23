@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use crate::common::http::Client;
 use crate::common::net::{init_tracing, SimServer, TestServer, TurmoilAcceptor, TurmoilConnector};
+use serde_json::json;
 use sqlanywhere::{Database, Value};
 use sqlanywhere_server::config::{AdminApiConfig, RpcServerConfig, UserApiConfig};
-use serde_json::json;
 use tempfile::tempdir;
 use turmoil::{Builder, Sim};
 

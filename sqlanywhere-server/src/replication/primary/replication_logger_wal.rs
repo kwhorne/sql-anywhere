@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use rusqlite::ffi::SQLITE_IOERR;
 use sqlanywhere_sys::wal::wrapper::WrapWal;
 use sqlanywhere_sys::wal::Wal;
-use rusqlite::ffi::SQLITE_IOERR;
 
 use crate::replication::ReplicationLogger;
 
@@ -129,8 +129,8 @@ impl ReplicationLoggerWalWrapper {
 
 #[cfg(test)]
 mod test {
-    use sqlanywhere_sys::wal::{Sqlite3WalManager, WalManager};
     use rusqlite::ffi::{sqlite3_wal_checkpoint_v2, SQLITE_CHECKPOINT_FULL};
+    use sqlanywhere_sys::wal::{Sqlite3WalManager, WalManager};
     use tempfile::tempdir;
 
     use super::*;

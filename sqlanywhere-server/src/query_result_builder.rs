@@ -4,10 +4,10 @@ use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
 use bytesize::ByteSize;
-use sqlanywhere_sys::EncryptionConfig;
 use rusqlite::types::ValueRef;
 use serde::Serialize;
 use serde_json::ser::Formatter;
+use sqlanywhere_sys::EncryptionConfig;
 use std::sync::atomic::AtomicUsize;
 
 use crate::replication::FrameNo;

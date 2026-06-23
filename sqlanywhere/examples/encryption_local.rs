@@ -12,7 +12,8 @@ async fn main() {
     // The local database path where the data will be stored.
     let db_path = std::env::var("SQLANYWHERE_DB_PATH").unwrap();
     // The encryption key for the database.
-    let encryption_key = std::env::var("SQLANYWHERE_ENCRYPTION_KEY").unwrap_or("s3cR3t".to_string());
+    let encryption_key =
+        std::env::var("SQLANYWHERE_ENCRYPTION_KEY").unwrap_or("s3cR3t".to_string());
 
     let mut db_builder = Builder::new_local(db_path);
 

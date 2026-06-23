@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use hyper::StatusCode;
-use sqlanywhere_server::config::{AdminApiConfig, UserApiConfig};
 use s3s::header::AUTHORIZATION;
 use serde_json::json;
+use sqlanywhere_server::config::{AdminApiConfig, UserApiConfig};
 use tempfile::tempdir;
 
 use crate::common::{

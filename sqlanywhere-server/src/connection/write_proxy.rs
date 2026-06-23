@@ -5,12 +5,12 @@ use std::time::Duration;
 use futures::Future;
 use futures_core::future::BoxFuture;
 use futures_core::Stream;
+use parking_lot::Mutex as PMutex;
 use sqlanywhere_replication::rpc::proxy::proxy_client::ProxyClient;
 use sqlanywhere_replication::rpc::proxy::{
     exec_req, exec_resp, ExecReq, ExecResp, StreamDescribeReq, StreamProgramReq,
 };
 use sqlanywhere_sys::EncryptionConfig;
-use parking_lot::Mutex as PMutex;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;

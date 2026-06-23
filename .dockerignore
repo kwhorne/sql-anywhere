@@ -22,7 +22,7 @@ sqlanywhere-sqlite3/fts5parse.y
 sqlanywhere-sqlite3/keywordhash.h
 sqlanywhere-sqlite3/lemon
 sqlanywhere-sqlite3/lempar.c
-sqlanywhere-sqlite3/sqlanywhereite3.la
+sqlanywhere-sqlite3/sqlite3.la
 sqlanywhere-sqlite3/libsqlanywhere.la
 sqlanywhere-sqlite3/libtclsqlite3.la
 sqlanywhere-sqlite3/libtool

@@ -7,6 +7,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::stream::BoxStream;
 use futures_core::Future;
+use md5::{Digest, Md5};
 pub use sqlanywhere_replication::rpc::replication as rpc;
 use sqlanywhere_replication::rpc::replication::log_offset::WalFlavor;
 use sqlanywhere_replication::rpc::replication::replication_log_server::ReplicationLog;
@@ -14,7 +15,6 @@ use sqlanywhere_replication::rpc::replication::{
     Frame, Frames, HelloRequest, HelloResponse, LogOffset, NAMESPACE_DOESNT_EXIST,
     NEED_SNAPSHOT_ERROR_MSG, NO_HELLO_ERROR_MSG, SESSION_TOKEN_KEY,
 };
-use md5::{Digest, Md5};
 use tokio_stream::StreamExt as _;
 use tonic::transport::server::TcpConnectInfo;
 use tonic::Status;

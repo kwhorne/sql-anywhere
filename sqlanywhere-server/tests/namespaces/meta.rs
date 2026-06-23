@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use sqlanywhere::Database;
 use serde_json::json;
+use sqlanywhere::Database;
 use tempfile::tempdir;
 use turmoil::Builder;
 

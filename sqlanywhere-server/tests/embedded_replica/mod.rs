@@ -10,12 +10,12 @@ use crate::common::auth::encode;
 use crate::common::http::Client;
 use crate::common::net::{init_tracing, SimServer, TestServer, TurmoilAcceptor, TurmoilConnector};
 use crate::common::{self, snapshot_metrics};
+use serde_json::json;
 use sqlanywhere::Database;
 use sqlanywhere_server::auth::{user_auth_strategies, Auth};
 use sqlanywhere_server::config::{
     AdminApiConfig, DbConfig, RpcClientConfig, RpcServerConfig, UserApiConfig,
 };
-use serde_json::json;
 use tempfile::tempdir;
 use tokio::sync::Notify;
 use tokio_stream::StreamExt;

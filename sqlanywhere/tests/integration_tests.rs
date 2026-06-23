@@ -1,13 +1,13 @@
 #![allow(deprecated)]
 
 use futures::{StreamExt, TryStreamExt};
+use rand::distributions::Uniform;
+use rand::prelude::*;
 use sqlanywhere::{
     named_params, params,
     params::{IntoParams, IntoValue},
     AuthAction, Authorization, Connection, Database, Op, Result, Value,
 };
-use rand::distributions::Uniform;
-use rand::prelude::*;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 

@@ -64,7 +64,9 @@ impl InnerConnection {
         c_path: &CStr,
         flags: OpenFlags,
         vfs: Option<&CStr>,
-        #[cfg(feature = "sqlanywhere-experimental")] wal_manager: Option<ffi::sqlanywhere_wal_manager>,
+        #[cfg(feature = "sqlanywhere-experimental")] wal_manager: Option<
+            ffi::sqlanywhere_wal_manager,
+        >,
     ) -> Result<InnerConnection> {
         ensure_safe_sqlite_threading_mode()?;
 
@@ -94,9 +96,13 @@ impl InnerConnection {
             let r = ffi::sqlite3_open_v2(c_path.as_ptr(), &mut db, flags.bits(), z_vfs);
             #[cfg(feature = "sqlanywhere-experimental")]
             let r = match wal_manager {
-                Some(wal_manager) => {
-                    ffi::sqlanywhere_open_v3(c_path.as_ptr(), &mut db, flags.bits(), z_vfs, wal_manager)
-                }
+                Some(wal_manager) => ffi::sqlanywhere_open_v3(
+                    c_path.as_ptr(),
+                    &mut db,
+                    flags.bits(),
+                    z_vfs,
+                    wal_manager,
+                ),
                 None => ffi::sqlite3_open_v2(c_path.as_ptr(), &mut db, flags.bits(), z_vfs),
             };
 

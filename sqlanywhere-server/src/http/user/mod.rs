@@ -22,12 +22,12 @@ use axum_extra::middleware::option_layer;
 use base64::prelude::BASE64_STANDARD_NO_PAD;
 use base64::Engine;
 use hyper::{header, Body, Request, Response, StatusCode};
-use sqlanywhere_replication::rpc::replication::replication_log_server::{
-    ReplicationLog, ReplicationLogServer,
-};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Number;
+use sqlanywhere_replication::rpc::replication::replication_log_server::{
+    ReplicationLog, ReplicationLogServer,
+};
 use tokio::sync::{mpsc, oneshot};
 use tonic::transport::Server;
 

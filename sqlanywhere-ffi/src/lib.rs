@@ -10,7 +10,8 @@ use std::os::raw::c_int;
 
 #[cfg(feature = "wasmtime-bindings")]
 pub use sqlanywhere_wasm::{
-    sqlanywhere_compile_wasm_module, sqlanywhere_free_wasm_module, sqlanywhere_run_wasm, sqlanywhere_wasm_engine_new,
+    sqlanywhere_compile_wasm_module, sqlanywhere_free_wasm_module, sqlanywhere_run_wasm,
+    sqlanywhere_wasm_engine_new,
 };
 
 pub use bindgen::*;

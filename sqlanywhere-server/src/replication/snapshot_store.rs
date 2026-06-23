@@ -5,13 +5,13 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+use rusqlite::named_params;
+use rusqlite::OptionalExtension;
 use sqlanywhere_replication::frame::FrameBorrowed;
 use sqlanywhere_replication::snapshot::SnapshotFile;
 use sqlanywhere_replication::snapshot::SnapshotFileHeader;
 use sqlanywhere_sys::wal::{Sqlite3Wal, Sqlite3WalManager};
-use parking_lot::Mutex;
-use rusqlite::named_params;
-use rusqlite::OptionalExtension;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 use zerocopy::{AsBytes, FromZeroes};

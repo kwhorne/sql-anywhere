@@ -17,10 +17,10 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::{Client, Config};
 use bytes::{Buf, Bytes};
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use metrics::{counter, gauge, histogram};
 use sqlanywhere_replication::injector::Injector as _;
 use sqlanywhere_replication::rpc::replication::Frame as RpcFrame;
 use sqlanywhere_sys::{Cipher, EncryptionConfig};
-use metrics::{counter, gauge, histogram};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -133,14 +133,12 @@ impl Options {
         if let Some(endpoint) = self.aws_endpoint.as_deref() {
             loader = loader.endpoint_url(endpoint);
         }
-        let region = self
-            .region
-            .clone()
-            .ok_or(anyhow!("SQLANYWHERE_BOTTOMLESS_AWS_DEFAULT_REGION was not set"))?;
-        let access_key_id = self
-            .access_key_id
-            .clone()
-            .ok_or(anyhow!("SQLANYWHERE_BOTTOMLESS_AWS_ACCESS_KEY_ID was not set"))?;
+        let region = self.region.clone().ok_or(anyhow!(
+            "SQLANYWHERE_BOTTOMLESS_AWS_DEFAULT_REGION was not set"
+        ))?;
+        let access_key_id = self.access_key_id.clone().ok_or(anyhow!(
+            "SQLANYWHERE_BOTTOMLESS_AWS_ACCESS_KEY_ID was not set"
+        ))?;
         let secret_access_key = self.secret_access_key.clone().ok_or(anyhow!(
             "SQLANYWHERE_BOTTOMLESS_AWS_SECRET_ACCESS_KEY was not set"
         ))?;
@@ -232,7 +230,8 @@ impl Options {
                 other
             ),
         };
-        let s3_max_retries = env_var_or("SQLANYWHERE_BOTTOMLESS_S3_MAX_RETRIES", 10).parse::<u32>()?;
+        let s3_max_retries =
+            env_var_or("SQLANYWHERE_BOTTOMLESS_S3_MAX_RETRIES", 10).parse::<u32>()?;
         let cipher = match encryption_cipher {
             Some(cipher) => Cipher::from_str(&cipher)?,
             None => Cipher::default(),

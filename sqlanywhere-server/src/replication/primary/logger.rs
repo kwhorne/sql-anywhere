@@ -9,12 +9,12 @@ use std::sync::Arc;
 use anyhow::{bail, ensure};
 use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, Utc};
-use sqlanywhere_replication::frame::{Frame, FrameBorrowed, FrameHeader, FrameMut};
-use sqlanywhere_replication::snapshot::SnapshotFile;
-use sqlanywhere_sys::EncryptionConfig;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rusqlite::ffi::SQLITE_CHECKPOINT_TRUNCATE;
+use sqlanywhere_replication::frame::{Frame, FrameBorrowed, FrameHeader, FrameMut};
+use sqlanywhere_replication::snapshot::SnapshotFile;
+use sqlanywhere_sys::EncryptionConfig;
 use tokio::sync::watch;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
@@ -1124,7 +1124,10 @@ mod test {
             if !seen.contains(&page_no) {
                 seen.insert(page_no);
                 new_db_file
-                    .write_all_at(frame.page(), (page_no.get() as u64 - 1) * SQLANYWHERE_PAGE_SIZE)
+                    .write_all_at(
+                        frame.page(),
+                        (page_no.get() as u64 - 1) * SQLANYWHERE_PAGE_SIZE,
+                    )
                     .unwrap();
             }
         }

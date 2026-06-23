@@ -103,15 +103,18 @@ async fn inject_frames_split_txn() {
         .await
         .unwrap();
 
-    let mut frames = DB.chunks(SQLANYWHERE_PAGE_SIZE).enumerate().map(|(i, data)| {
-        let header = FrameHeader {
-            frame_no: (i as u64).into(),
-            checksum: 0.into(),
-            page_no: (i as u32 + 1).into(),
-            size_after: 0.into(),
-        };
-        FrameBorrowed::from_parts(&header, data)
-    });
+    let mut frames = DB
+        .chunks(SQLANYWHERE_PAGE_SIZE)
+        .enumerate()
+        .map(|(i, data)| {
+            let header = FrameHeader {
+                frame_no: (i as u64).into(),
+                checksum: 0.into(),
+                page_no: (i as u32 + 1).into(),
+                size_after: 0.into(),
+            };
+            FrameBorrowed::from_parts(&header, data)
+        });
 
     let conn = db.connect().unwrap();
     assert!(conn.query("select count(*) from test", ()).await.is_err());

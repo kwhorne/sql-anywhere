@@ -16,7 +16,7 @@ fts5parse.sql
 keywordhash.h
 lemon
 /lempar.c
-sqlanywhereite3.la
+sqlite3.la
 libsqlanywhere.la
 libtclsqlite3.la
 libtool

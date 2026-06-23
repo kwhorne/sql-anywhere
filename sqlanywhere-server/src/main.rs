@@ -8,7 +8,9 @@ use anyhow::{bail, Context as _, Result};
 use bytesize::ByteSize;
 use clap::Parser;
 use hyper::client::HttpConnector;
-use sqlanywhere_server::auth::{parse_http_basic_auth_arg, parse_jwt_keys, user_auth_strategies, Auth};
+use sqlanywhere_server::auth::{
+    parse_http_basic_auth_arg, parse_jwt_keys, user_auth_strategies, Auth,
+};
 use tokio::sync::Notify;
 use tokio::time::Duration;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -282,7 +284,11 @@ struct Cli {
     enable_deadlock_monitor: bool,
 
     /// Auth key for the admin API
-    #[clap(long, env = "SQLANYWHERE_ADMIN_AUTH_KEY", requires = "admin_listen_addr")]
+    #[clap(
+        long,
+        env = "SQLANYWHERE_ADMIN_AUTH_KEY",
+        requires = "admin_listen_addr"
+    )]
     admin_auth_key: Option<String>,
 
     /// Whether to perform a sync of all namespaces with remote on startup

@@ -552,15 +552,15 @@ ST_OPT = -DSQLITE_THREADSAFE=0
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
 #
-all:	sqlite3.h sqlite3ext.h sqlanywhereite3.a sqlite3$(EXE)
+all:	sqlite3.h sqlite3ext.h sqlite3.a sqlite3$(EXE)
 
-sqlanywhereite3.a: sqlite3.h	$(LIBOBJ)
-	$(AR) sqlanywhereite3.a $(LIBOBJ)
-	$(RANLIB) sqlanywhereite3.a
+sqlite3.a: sqlite3.h	$(LIBOBJ)
+	$(AR) sqlite3.a $(LIBOBJ)
+	$(RANLIB) sqlite3.a
 
-sqlite3$(EXE):	sqlite3.h sqlanywhereite3.a shell.c
+sqlite3$(EXE):	sqlite3.h sqlite3.a shell.c
 	$(TCCX) $(READLINE_FLAGS) -o sqlite3$(EXE) $(SHELL_OPT) \
-		shell.c sqlanywhereite3.a $(LIBREADLINE) $(TLIBS) $(THREADLIB)
+		shell.c sqlite3.a $(LIBREADLINE) $(TLIBS) $(THREADLIB)
 
 sqldiff$(EXE):	$(TOP)/tool/sqldiff.c $(TOP)/ext/misc/sqlite3_stdio.h sqlite3.c sqlite3.h
 	$(TCCX) -I$(TOP)/ext/misc -o sqldiff$(EXE) -DSQLITE_THREADSAFE=0 \
@@ -881,9 +881,9 @@ sqlite3rbu.o:	$(TOP)/ext/rbu/sqlite3rbu.c $(HDR) $(EXTHDR)
 
 # Rules for building test programs and for running tests
 #
-tclsqlite3:	$(TOP)/src/tclsqlite.c sqlanywhereite3.a
+tclsqlite3:	$(TOP)/src/tclsqlite.c sqlite3.a
 	$(TCCX) $(TCL_FLAGS) -DTCLSH -o tclsqlite3 \
-		$(TOP)/src/tclsqlite.c sqlanywhereite3.a $(LIBTCL) $(THREADLIB)
+		$(TOP)/src/tclsqlite.c sqlite3.a $(LIBTCL) $(THREADLIB)
 
 sqlite3_analyzer.c: sqlite3.c $(TOP)/src/tclsqlite.c $(TOP)/tool/spaceanal.tcl $(TOP)/tool/sqlite3_analyzer.c.in $(TOP)/tool/mkccode.tcl
 	tclsh $(TOP)/tool/mkccode.tcl $(TOP)/tool/sqlite3_analyzer.c.in >sqlite3_analyzer.c
@@ -934,10 +934,10 @@ TESTFIXTURE_FLAGS += -DSQLITE_CKSUMVFS_STATIC
 TESTFIXTURE_FLAGS += -DSQLITE_STATIC_RANDOMJSON
 TESTFIXTURE_FLAGS += -DSQLITE_STRICT_SUBTYPE=1
 
-testfixture$(EXE): $(TESTSRC2) sqlanywhereite3.a $(TESTSRC) $(TOP)/src/tclsqlite.c
+testfixture$(EXE): $(TESTSRC2) sqlite3.a $(TESTSRC) $(TOP)/src/tclsqlite.c
 	$(TCCX) $(TCL_FLAGS) $(TESTFIXTURE_FLAGS)                            \
 		$(TESTSRC) $(TESTSRC2) $(TOP)/src/tclsqlite.c                \
-		-o testfixture$(EXE) $(LIBTCL) sqlanywhereite3.a $(THREADLIB)
+		-o testfixture$(EXE) $(LIBTCL) sqlite3.a $(THREADLIB)
 
 amalgamation-testfixture$(EXE): sqlite3.c $(TESTSRC) $(TOP)/src/tclsqlite.c  \
 				$(TOP)/ext/session/test_session.c
@@ -1122,11 +1122,11 @@ rbu$(EXE): $(TOP)/ext/rbu/rbu.c $(TOP)/ext/rbu/sqlite3rbu.c sqlite3.o
 	$(TCC) -I. -o rbu$(EXE) $(TOP)/ext/rbu/rbu.c sqlite3.o \
 	  $(THREADLIB)
 
-loadfts: $(TOP)/tool/loadfts.c sqlanywhereite3.a
-	$(TCC) $(TOP)/tool/loadfts.c sqlanywhereite3.a -o loadfts $(THREADLIB)
+loadfts: $(TOP)/tool/loadfts.c sqlite3.a
+	$(TCC) $(TOP)/tool/loadfts.c sqlite3.a -o loadfts $(THREADLIB)
 
-threadtest5:	$(TOP)/test/threadtest5.c sqlanywhereite3.a
-	$(TCC) $(TOP)/test/threadtest5.c sqlanywhereite3.a -o threadtest5 $(THREADLIB)
+threadtest5:	$(TOP)/test/threadtest5.c sqlite3.a
+	$(TCC) $(TOP)/test/threadtest5.c sqlite3.a -o threadtest5 $(THREADLIB)
 
 # This target will fail if the SQLite amalgamation contains any exported
 # symbols that do not begin with "sqlite3_". It is run as part of the
@@ -1148,9 +1148,9 @@ snapshot-tarball: sqlite3.c sqlite3rc.h
 
 # Standard install and cleanup targets
 #
-install:	sqlite3 sqlanywhereite3.a sqlite3.h
+install:	sqlite3 sqlite3.a sqlite3.h
 	mv sqlite3 /usr/bin
-	mv sqlanywhereite3.a /usr/lib
+	mv sqlite3.a /usr/lib
 	mv sqlite3.h /usr/include
 
 clean:

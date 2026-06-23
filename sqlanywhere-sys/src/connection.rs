@@ -122,7 +122,11 @@ extern "C" {
 
     fn sqlanywhere_leak_pager(db: *mut sqlanywhere_ffi::sqlite3) -> *mut crate::ffi::Pager;
     fn sqlanywhere_generate_initial_vector(seed: u32, iv: *mut u8);
-    fn sqlanywhere_generate_aes256_key(user_password: *const u8, password_length: u32, digest: *mut u8);
+    fn sqlanywhere_generate_aes256_key(
+        user_password: *const u8,
+        password_length: u32,
+        digest: *mut u8,
+    );
 }
 
 pub fn pghdr_creator(

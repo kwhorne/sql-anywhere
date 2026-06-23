@@ -1,8 +1,8 @@
 use std::time::Duration;
 
+use serde_json::json;
 use sqlanywhere::{replication::Frames, Database};
 use sqlanywhere_replication::snapshot::SnapshotFile;
-use serde_json::json;
 use tempfile::tempdir;
 use turmoil::Builder;
 

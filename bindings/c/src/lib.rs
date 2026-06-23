@@ -10,9 +10,9 @@ use http::Uri;
 use sqlanywhere::{errors, Builder, LoadExtensionGuard};
 use tokio::runtime::Runtime;
 use types::{
-    blob, sqlanywhere_connection, sqlanywhere_connection_t, sqlanywhere_database, sqlanywhere_database_t, sqlanywhere_row,
-    sqlanywhere_row_t, sqlanywhere_rows, sqlanywhere_rows_future_t, sqlanywhere_rows_t, sqlanywhere_stmt, sqlanywhere_stmt_t,
-    replicated, stmt,
+    blob, replicated, sqlanywhere_connection, sqlanywhere_connection_t, sqlanywhere_database,
+    sqlanywhere_database_t, sqlanywhere_row, sqlanywhere_row_t, sqlanywhere_rows,
+    sqlanywhere_rows_future_t, sqlanywhere_rows_t, sqlanywhere_stmt, sqlanywhere_stmt_t, stmt,
 };
 
 lazy_static! {

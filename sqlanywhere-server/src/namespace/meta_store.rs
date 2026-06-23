@@ -7,13 +7,13 @@ use bottomless::bottomless_wal::BottomlessWalWrapper;
 use bottomless::replicator::CompressionKind;
 use bottomless::SavepointTracker;
 use futures_core::Future;
+use parking_lot::Mutex;
+use prost::Message;
 use sqlanywhere_replication::rpc::metadata;
 use sqlanywhere_sys::wal::{
     wrapper::{WalWrapper, WrappedWal},
     Sqlite3Wal, Sqlite3WalManager,
 };
-use parking_lot::Mutex;
-use prost::Message;
 use tokio::sync::oneshot;
 use tokio::sync::{
     mpsc,

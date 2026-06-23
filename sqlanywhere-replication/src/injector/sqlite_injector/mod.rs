@@ -10,7 +10,8 @@ use crate::frame::{Frame, FrameNo};
 use crate::rpc::replication::Frame as RpcFrame;
 
 use self::injector_wal::{
-    InjectorWal, InjectorWalManager, SQLANYWHERE_INJECT_FATAL, SQLANYWHERE_INJECT_OK, SQLANYWHERE_INJECT_OK_TXN,
+    InjectorWal, InjectorWalManager, SQLANYWHERE_INJECT_FATAL, SQLANYWHERE_INJECT_OK,
+    SQLANYWHERE_INJECT_OK_TXN,
 };
 
 use super::error::Result;

@@ -98,7 +98,7 @@ TEA_ADD_TCL_SOURCES([])
 #--------------------------------------------------------------------
 AC_ARG_WITH([system-sqlite],
  [AS_HELP_STRING([--with-system-sqlite],
-   [use a system-supplied sqlanywhereite3 instead of the bundled one])],
+   [use a system-supplied sqlite3 instead of the bundled one])],
  [], [with_system_sqlite=no])
 if test x$with_system_sqlite != xno; then
  AC_CHECK_HEADER([sqlite3.h],

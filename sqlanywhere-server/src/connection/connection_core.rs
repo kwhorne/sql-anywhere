@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use sqlanywhere_sys::wal::{Wal, WalManager};
 use metrics::histogram;
 use parking_lot::Mutex;
+use sqlanywhere_sys::wal::{Wal, WalManager};
 
 use crate::connection::legacy::open_conn_active_checkpoint;
 use crate::error::Error;
@@ -384,9 +384,9 @@ impl<W: Wal + Send + 'static> CoreConnection<W> {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use rand::Rng;
     use sqlanywhere_sys::wal::wrapper::PassthroughWalWrapper;
     use sqlanywhere_sys::wal::{Sqlite3Wal, Sqlite3WalManager};
-    use rand::Rng;
     use tempfile::tempdir;
     use tokio::task::JoinSet;
     use tokio::time::Instant;
@@ -477,7 +477,10 @@ mod test {
         )
         .unwrap();
         assert!(!conn.is_autocommit().await.unwrap());
-        assert!(matches!(builder.into_ret()[0], Err(Error::SqlAnywhereTxTimeout)));
+        assert!(matches!(
+            builder.into_ret()[0],
+            Err(Error::SqlAnywhereTxTimeout)
+        ));
     }
 
     #[tokio::test]

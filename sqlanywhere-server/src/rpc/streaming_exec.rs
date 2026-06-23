@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use futures_core::future::BoxFuture;
 use futures_core::Stream;
+use prost::Message;
+use rusqlite::types::ValueRef;
 use sqlanywhere_replication::rpc::proxy::exec_req::Request;
 use sqlanywhere_replication::rpc::proxy::exec_resp::{self, Response};
 use sqlanywhere_replication::rpc::proxy::resp_step::Step;
@@ -14,8 +16,6 @@ use sqlanywhere_replication::rpc::proxy::{
     DescribeResp, ExecReq, ExecResp, Finish, FinishRow, FinishRows, FinishStep, Init, ProgramResp,
     RespStep, RowValue, StepError, StreamDescribeReq,
 };
-use prost::Message;
-use rusqlite::types::ValueRef;
 use tokio::pin;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;

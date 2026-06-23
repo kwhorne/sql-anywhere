@@ -138,18 +138,18 @@ features](https://doc.rust-lang.org/cargo/reference/manifest.html#the-features-s
 * `collation` exposes [`sqlite3_create_collation_v2`](https://sqlite.org/c3ref/create_collation.html).
 * `winsqlite3` allows linking against the SQLite present in newer versions of Windows
 
-## Notes on building rusqlite and sqlanywhereite3-sys
+## Notes on building rusqlite and sqlite3-sys
 
-`sqlanywhereite3-sys` is a separate crate from `rusqlite` that provides the Rust
-declarations for SQLite's C API. By default, `sqlanywhereite3-sys` attempts to find a SQLite library that already exists on your system using pkg-config, or a
+`sqlite3-sys` is a separate crate from `rusqlite` that provides the Rust
+declarations for SQLite's C API. By default, `sqlite3-sys` attempts to find a SQLite library that already exists on your system using pkg-config, or a
 [Vcpkg](https://github.com/Microsoft/vcpkg) installation for MSVC ABI builds.
 
 You can adjust this behavior in a number of ways:
 
-* If you use the `bundled`, `bundled-sqlcipher`, or `bundled-sqlcipher-vendored-openssl` features, `sqlanywhereite3-sys` will use the
+* If you use the `bundled`, `bundled-sqlcipher`, or `bundled-sqlcipher-vendored-openssl` features, `sqlite3-sys` will use the
   [cc](https://crates.io/crates/cc) crate to compile SQLite or SQLCipher from source and
-  link against that. This source is embedded in the `sqlanywhereite3-sys` crate and
-  is currently SQLite 3.41.2 (as of `rusqlite` 0.29.0 / `sqlanywhereite3-sys`
+  link against that. This source is embedded in the `sqlite3-sys` crate and
+  is currently SQLite 3.41.2 (as of `rusqlite` 0.29.0 / `sqlite3-sys`
   0.26.0).  This is probably the simplest solution to any build problems. You can enable this by adding the following in your `Cargo.toml` file:
   ```toml
   [dependencies.rusqlite]
@@ -157,7 +157,7 @@ You can adjust this behavior in a number of ways:
   features = ["bundled"]
   ```
 * When using any of the `bundled` features, the build script will honor `SQLITE_MAX_VARIABLE_NUMBER` and `SQLITE_MAX_EXPR_DEPTH` variables. It will also honor a `SQLANYWHEREITE3_FLAGS` variable, which can have a format like `"-USQLITE_ALPHA -DSQLITE_BETA SQLITE_GAMMA ..."`. That would disable the `SQLITE_ALPHA` flag, and set the `SQLITE_BETA` and `SQLITE_GAMMA` flags. (The initial `-D` can be omitted, as on the last one.)
-* When using `bundled-sqlcipher` (and not also using `bundled-sqlcipher-vendored-openssl`), `sqlanywhereite3-sys` will need to
+* When using `bundled-sqlcipher` (and not also using `bundled-sqlcipher-vendored-openssl`), `sqlite3-sys` will need to
   link against crypto libraries on the system. If the build script can find a `libcrypto` from OpenSSL or LibreSSL (it will consult `OPENSSL_LIB_DIR`/`OPENSSL_INCLUDE_DIR` and `OPENSSL_DIR` environment variables), it will use that. If building on and for Macs, and none of those variables are set, it will use the system's SecurityFramework instead.
 
 * When linking against a SQLite (or SQLCipher) library already on the system (so *not* using any of the `bundled` features), you can set the `SQLITE3_LIB_DIR` (or `SQLCIPHER_LIB_DIR`) environment variable to point to a directory containing the library. You can also set the `SQLITE3_INCLUDE_DIR` (or `SQLCIPHER_INCLUDE_DIR`) variable to point to the directory containing `sqlite3.h`.
@@ -178,7 +178,7 @@ declarations from SQLite's C header file. `bindgen`
 running this as part of the build process of libraries that used this. We tried
 this briefly (`rusqlite` 0.10.0, specifically), but it had some annoyances:
 
-* The build time for `sqlanywhereite3-sys` (and therefore `rusqlite`) increased
+* The build time for `sqlite3-sys` (and therefore `rusqlite`) increased
   dramatically.
 * Running `bindgen` requires a relatively-recent version of Clang, which many
   systems do not have installed by default.
@@ -188,7 +188,7 @@ As of `rusqlite` 0.10.1, we avoid running `bindgen` at build-time by shipping
 pregenerated bindings for several versions of SQLite. When compiling
 `rusqlite`, we use your selected Cargo features to pick the bindings for the
 minimum SQLite version that supports your chosen features. If you are using
-`sqlanywhereite3-sys` directly, you can use the same features to choose which
+`sqlite3-sys` directly, you can use the same features to choose which
 pregenerated bindings are chosen:
 
 * `min_sqlite_version_3_14_0` - SQLite 3.14.0 bindings (this is the default)
@@ -231,18 +231,18 @@ here: https://github.com/rusqlite/rusqlite/graphs/contributors
 
 ## Community
 
-Feel free to join the [Rusqlite Discord Server](https://discord.gg/nFYfGPB8g4) to discuss or get help with `rusqlite` or `sqlanywhereite3-sys`.
+Feel free to join the [Rusqlite Discord Server](https://discord.gg/nFYfGPB8g4) to discuss or get help with `rusqlite` or `sqlite3-sys`.
 
 ## License
 
-Rusqlite and sqlanywhereite3-sys are available under the MIT license. See the LICENSE file for more info.
+Rusqlite and sqlite3-sys are available under the MIT license. See the LICENSE file for more info.
 
 ### Licenses of Bundled Software
 
-Depending on the set of enabled cargo `features`, rusqlite and sqlanywhereite3-sys will also bundle other libraries, which have their own licensing terms:
+Depending on the set of enabled cargo `features`, rusqlite and sqlite3-sys will also bundle other libraries, which have their own licensing terms:
 
-- If `--features=bundled-sqlcipher` is enabled, the vendored source of [SQLcipher](https://github.com/sqlcipher/sqlcipher) will be compiled and statically linked in. SQLcipher is distributed under a BSD-style license, as described [here](sqlanywhereite3-sys/sqlcipher/LICENSE).
+- If `--features=bundled-sqlcipher` is enabled, the vendored source of [SQLcipher](https://github.com/sqlcipher/sqlcipher) will be compiled and statically linked in. SQLcipher is distributed under a BSD-style license, as described [here](sqlite3-sys/sqlcipher/LICENSE).
 
 - If `--features=bundled` is enabled, the vendored source of SQLite will be compiled and linked in. SQLite is in the public domain, as described [here](https://www.sqlite.org/copyright.html).
 
-Both of these are quite permissive, have no bearing on the license of the code in `rusqlite` or `sqlanywhereite3-sys` themselves, and can be entirely ignored if you do not use the feature in question.
+Both of these are quite permissive, have no bearing on the license of the code in `rusqlite` or `sqlite3-sys` themselves, and can be entirely ignored if you do not use the feature in question.

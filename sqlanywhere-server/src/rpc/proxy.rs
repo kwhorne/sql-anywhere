@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use async_lock::{RwLock, RwLockUpgradableReadGuard};
 use futures_core::Stream;
+use rusqlite::types::ValueRef;
 use sqlanywhere_replication::rpc::proxy::proxy_server::Proxy;
 use sqlanywhere_replication::rpc::proxy::query_result::RowResult;
 use sqlanywhere_replication::rpc::proxy::{
@@ -14,7 +15,6 @@ use sqlanywhere_replication::rpc::proxy::{
     ExecResp, ExecuteResults, QueryResult, ResultRows, Row,
 };
 use sqlanywhere_replication::rpc::replication::NAMESPACE_DOESNT_EXIST;
-use rusqlite::types::ValueRef;
 use tokio::time::Duration;
 use uuid::Uuid;
 

@@ -1,5 +1,5 @@
 
-load ./sqlanywhereite3.dylib
+load ./sqlite3.dylib
 #package require sqlite3
 source [file join [file dirname $argv0] rtree_util.tcl]
 

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use hyper::{service::make_service_fn, Body, Response, StatusCode};
 use insta::{assert_json_snapshot, assert_snapshot};
-use sqlanywhere::{Database, Value};
 use serde_json::json;
+use sqlanywhere::{Database, Value};
 use tempfile::tempdir;
 use tower::service_fn;
 use turmoil::Builder;

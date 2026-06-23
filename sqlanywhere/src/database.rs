@@ -606,7 +606,10 @@ impl Database {
                 #[cfg(feature = "encryption")]
                 if let Some(cfg) = encryption_config {
                     if unsafe {
-                        sqlanywhere_sys::connection::set_encryption_cipher(conn.raw, cfg.cipher_id())
+                        sqlanywhere_sys::connection::set_encryption_cipher(
+                            conn.raw,
+                            cfg.cipher_id(),
+                        )
                     } == -1
                     {
                         return Err(crate::Error::Misuse(
@@ -614,7 +617,10 @@ impl Database {
                         ));
                     }
                     if unsafe {
-                        sqlanywhere_sys::connection::set_encryption_key(conn.raw, &cfg.encryption_key)
+                        sqlanywhere_sys::connection::set_encryption_key(
+                            conn.raw,
+                            &cfg.encryption_key,
+                        )
                     } != crate::ffi::SQLITE_OK
                     {
                         return Err(crate::Error::Misuse(
@@ -645,7 +651,10 @@ impl Database {
                 #[cfg(feature = "encryption")]
                 if let Some(cfg) = encryption_config {
                     if unsafe {
-                        sqlanywhere_sys::connection::set_encryption_cipher(conn.raw, cfg.cipher_id())
+                        sqlanywhere_sys::connection::set_encryption_cipher(
+                            conn.raw,
+                            cfg.cipher_id(),
+                        )
                     } == -1
                     {
                         return Err(crate::Error::Misuse(
@@ -653,7 +662,10 @@ impl Database {
                         ));
                     }
                     if unsafe {
-                        sqlanywhere_sys::connection::set_encryption_key(conn.raw, &cfg.encryption_key)
+                        sqlanywhere_sys::connection::set_encryption_key(
+                            conn.raw,
+                            &cfg.encryption_key,
+                        )
                     } != crate::ffi::SQLITE_OK
                     {
                         return Err(crate::Error::Misuse(

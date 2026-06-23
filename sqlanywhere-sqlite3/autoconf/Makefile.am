@@ -1,8 +1,8 @@
 
 AM_CFLAGS = @BUILD_CFLAGS@ 
-lib_LTLIBRARIES = sqlanywhereite3.la
-sqlanywhereite3_la_SOURCES = sqlite3.c
-sqlanywhereite3_la_LDFLAGS = -no-undefined -version-info 8:6:8
+lib_LTLIBRARIES = sqlite3.la
+sqlite3_la_SOURCES = sqlite3.c
+sqlite3_la_LDFLAGS = -no-undefined -version-info 8:6:8
 
 bin_PROGRAMS = sqlite3
 sqlite3_SOURCES = shell.c sqlite3.h

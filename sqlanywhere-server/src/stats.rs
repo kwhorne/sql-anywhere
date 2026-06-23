@@ -293,7 +293,10 @@ impl Stats {
         let weight = rows_read + rows_written;
 
         histogram!("sqlanywhere_server_statement_execution_time", elapsed);
-        histogram!("sqlanywhere_server_statement_mem_used_bytes", mem_used as f64);
+        histogram!(
+            "sqlanywhere_server_statement_mem_used_bytes",
+            mem_used as f64
+        );
 
         if rows_read >= 10_000 || rows_written >= 1_000 {
             let sql = if sql.len() >= 512 {

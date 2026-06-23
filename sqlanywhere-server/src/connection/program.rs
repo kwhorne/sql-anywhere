@@ -259,7 +259,10 @@ where
             }
             self.builder.finish_row()?;
         }
-        histogram!("sqlanywhere_server_returned_bytes", values_total_bytes as f64);
+        histogram!(
+            "sqlanywhere_server_returned_bytes",
+            values_total_bytes as f64
+        );
 
         self.builder.finish_rows()?;
 

@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 use crossbeam::deque::Steal;
 use crossbeam::sync::{Parker, Unparker};
 use hashbrown::HashMap;
-use sqlanywhere_sys::wal::wrapper::{WrapWal, WrappedWal};
-use sqlanywhere_sys::wal::{CheckpointMode, Sqlite3Wal, Sqlite3WalManager, Wal};
 use metrics::atomics::AtomicU64;
 use parking_lot::{Mutex, MutexGuard};
 use rusqlite::ErrorCode;
+use sqlanywhere_sys::wal::wrapper::{WrapWal, WrappedWal};
+use sqlanywhere_sys::wal::{CheckpointMode, Sqlite3Wal, Sqlite3WalManager, Wal};
 
 use super::connection_core::CoreConnection;
 use super::TXN_TIMEOUT;

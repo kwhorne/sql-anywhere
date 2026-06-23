@@ -23,7 +23,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 * Add binding to `sqlite3_get_autocommit` and `sqlite3_stmt_busy`.
 * Add binding to `sqlite3_busy_timeout` and `sqlite3_busy_handler`.
 * Add binding to `sqlite3_expanded_sql`.
-* Use `rerun-if-env-changed` in sqlanywhereite3-sys (#329).
+* Use `rerun-if-env-changed` in sqlite3-sys (#329).
 * Return an `InvalidQuery` error when SQL is not read only.
 
 # Version 0.13.0 (2017-11-13)
@@ -45,7 +45,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 
 # Version 0.11.0 (2017-04-06)
 
-* Avoid publicly exporting SQLite constants multiple times from sqlanywhereite3-sys.
+* Avoid publicly exporting SQLite constants multiple times from sqlite3-sys.
 * Adds `FromSql` and `ToSql` impls for `isize`. Documents why `usize` and `u64` are not included.
 
 # Version 0.10.1 (2017-03-03)
@@ -57,10 +57,10 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 
 # Version 0.10.0 (2017-02-28)
 
-* Re-export the `ErrorCode` enum from `sqlanywhereite3-sys`.
+* Re-export the `ErrorCode` enum from `sqlite3-sys`.
 * Adds `version()` and `version_number()` functions for querying the version of SQLite in use.
 * Adds the `limits` feature, exposing `limit()` and `set_limit()` methods on `Connection`.
-* Updates to `sqlanywhereite3-sys` 0.7.0, which runs rust-bindgen at build-time instead of assuming the
+* Updates to `sqlite3-sys` 0.7.0, which runs rust-bindgen at build-time instead of assuming the
   precense of all expected SQLite constants and functions.
 * Clarifies supported SQLite versions. Running with SQLite older than 3.6.8 now panics, and
   some features will not compile unless a sufficiently-recent SQLite version is used. See
@@ -158,7 +158,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 * Adds `exists` convenience method returning whether a query finds one or more rows.
 * Adds support for serializing types from the `serde_json` crate. Requires the `serde_json` feature.
 * Adds support for serializing types from the `chrono` crate. Requires the `chrono` feature.
-* Removes `load_extension` feature from `sqlanywhereite3-sys`. `load_extension` is still available
+* Removes `load_extension` feature from `sqlite3-sys`. `load_extension` is still available
   on rusqlite itself.
 * Fixes crash on nightly Rust when using the `trace` feature.
 * Adds optional `clippy` feature and addresses issues it found.
@@ -168,7 +168,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 * Introduces a `RowIndex` trait allowing columns to be fetched via index (as before) or name (new).
 * Introduces `ZeroBlob` type under the `blob` module/feature exposing SQLite's zeroblob API.
 * Adds CI testing for Windows via AppVeyor.
-* Fixes a warning building sqlanywhereite3-sys under Rust 1.6.
+* Fixes a warning building sqlite3-sys under Rust 1.6.
 * Adds an unsafe `handle()` method to `Connection`. Please file an issue if you actually use it.
 
 # Version 0.6.0 (2015-12-17)
@@ -211,7 +211,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
     * Remove the `'static` requirement on the closure's output type.
     * Give the closure a `&SqliteRow` instead of a `SqliteRow`.
 * When building, the environment variable `SQLITE3_LIB_DIR` now takes precedence over pkg-config.
-* If `pkg-config` is not available, we will try to find `sqlanywhereite3` in `/usr/lib`.
+* If `pkg-config` is not available, we will try to find `sqlite3` in `/usr/lib`.
 * Add more documentation for failure modes of functions that return `SqliteResult`s.
 * Updates `libc` dependency to 0.2, fixing builds on ARM for Rust 1.6 or newer.
 
@@ -278,7 +278,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 
 # Version 0.0.11 (2015-03-12)
 
-* Reexport `sqlite3_stmt` from `sqlanywhereite3-sys` for easier `impl`-ing of `ToSql` and `FromSql`.
+* Reexport `sqlite3_stmt` from `sqlite3-sys` for easier `impl`-ing of `ToSql` and `FromSql`.
 * Updates to track latest rustc changes.
 * Update dependency versions.
 
@@ -287,7 +287,7 @@ For version 0.15.0 and above, see [Releases](https://github.com/rusqlite/rusqlit
 * BREAKING CHANGE: `open` now expects a `Path` rather than a `str`. There is a separate
   `open_in_memory` constructor for opening in-memory databases.
 * Added the ability to load SQLite extensions. This is behind the `load_extension` Cargo feature,
-  because not all builds of sqlite3 include this ability. Notably the default sqlanywhereite3 that
+  because not all builds of sqlite3 include this ability. Notably the default sqlite3 that
 	ships with OS X 10.10 does not support extensions.
 
 # Version 0.0.9 (2015-02-13)

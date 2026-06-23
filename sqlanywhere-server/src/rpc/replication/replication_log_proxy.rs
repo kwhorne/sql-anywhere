@@ -21,8 +21,10 @@ impl ReplicationLogProxyService {
 }
 
 fn mark_proxied<T>(mut req: tonic::Request<T>) -> tonic::Request<T> {
-    req.metadata_mut()
-        .insert("sqlanywhere-proxied", AsciiMetadataValue::from_static("true"));
+    req.metadata_mut().insert(
+        "sqlanywhere-proxied",
+        AsciiMetadataValue::from_static("true"),
+    );
     req
 }
 

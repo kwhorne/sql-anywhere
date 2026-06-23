@@ -170,7 +170,9 @@ fn run_cargo(cmd: &[&str]) -> Result<()> {
 }
 
 fn run_sqlanywhere_sqlite3(cmd: &str) -> Result<()> {
-    let mut out = Command::new(cmd).current_dir("sqlanywhere-sqlite3").spawn()?;
+    let mut out = Command::new(cmd)
+        .current_dir("sqlanywhere-sqlite3")
+        .spawn()?;
 
     let exit = out.wait()?;
 

@@ -10,7 +10,7 @@
 **
 *************************************************************************
 ** This header file defines the interface to TCL as used by SQLite.
-** SQLite subcomponents that use TCL (the sqlanywhereite3.c interface library
+** SQLite subcomponents that use TCL (the sqlite3.c interface library
 ** and various test*.c pieces) should #include this file rather than
 ** including tcl.h directly.
 */

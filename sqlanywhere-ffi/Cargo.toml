@@ -15,7 +15,7 @@ exclude = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sqlanywhere-wasmtime-bindings = { path = "../sqlanywhere-sqlite3/crates/wasmtime-bindings", optional = true }
+sqlanywhere_wasm = { package = "sqlanywhere-wasmtime-bindings", path = "../sqlanywhere-sqlite3/crates/wasmtime-bindings", optional = true }
 
 [build-dependencies]
 cmake = "0.1.54"
@@ -25,7 +25,7 @@ glob = "0.3"
 
 [features]
 session = []
-wasmtime-bindings = ["dep:sqlanywhere-wasmtime-bindings"]
+wasmtime-bindings = ["dep:sqlanywhere_wasm"]
 multiple-ciphers = []
 bundled-sqlcipher = []
 bundled-sqlcipher-vendored-openssl = []

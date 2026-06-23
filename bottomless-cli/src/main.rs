@@ -3,8 +3,8 @@ use aws_sdk_s3::Client;
 use bytes::Bytes;
 use chrono::NaiveDateTime;
 use clap::{Parser, Subcommand};
-use sqlanywhere_sys::{connection::NO_AUTOCHECKPOINT, wal::Sqlite3WalManager};
 use rusqlite::params;
+use sqlanywhere_sys::{connection::NO_AUTOCHECKPOINT, wal::Sqlite3WalManager};
 use std::path::PathBuf;
 
 mod replicator_extras;
@@ -233,7 +233,8 @@ async fn run() -> Result<()> {
             std::str::from_utf8(encryption_key)?,
         );
     }
-    let namespace_init = std::env::var("SQLANYWHERE_BOTTOMLESS_DATABASE_ID").unwrap_or(String::new());
+    let namespace_init =
+        std::env::var("SQLANYWHERE_BOTTOMLESS_DATABASE_ID").unwrap_or(String::new());
     if options.db_name.is_some() && options.namespace.is_some() {
         return Err(anyhow!(
             "only one of the arguments --db-name or --namespace is expected to be set"

@@ -1,7 +1,7 @@
 use itertools::Itertools;
-use sqlanywhere_replication::rpc::metadata;
 use prost::Message;
 use rusqlite::{params, OptionalExtension};
+use sqlanywhere_replication::rpc::metadata;
 
 use crate::connection::config::DatabaseConfig;
 use crate::connection::program::Program;

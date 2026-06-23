@@ -1,6 +1,6 @@
 ignore:
-  - "sqlanywhereite3-sys/bindgen-bindings"
-  - "sqlanywhereite3-sys/sqlite3"
+  - "sqlite3-sys/bindgen-bindings"
+  - "sqlite3-sys/sqlite3"
 coverage:
   status:
     project:

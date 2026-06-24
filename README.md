@@ -140,6 +140,63 @@ to disk like any other SQLite data. See
 [`sqlanywhere/tests/vector.rs`](sqlanywhere/tests/vector.rs) for runnable
 examples.
 
+## Replication & embedded replicas
+
+An **embedded replica** is a full SQL Anywhere database that lives inside your
+application process and keeps a local copy of a remote primary. Reads are served
+locally (sub-millisecond), and the replica pulls new changes from the primary on
+demand or on an interval. Writes are transparently forwarded to the primary, and
+read-your-writes consistency is preserved.
+
+```rust
+use sqlanywhere::Builder;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    // Local file that mirrors the remote primary.
+    let db = Builder::new_remote_replica(
+        "/var/lib/app/local.db",
+        "https://my-primary.example.com".to_string(),
+        "<auth-token>".to_string(),
+    )
+    .sync_interval(Duration::from_secs(60)) // optional background sync
+    .build()
+    .await
+    .unwrap();
+
+    // Pull the latest frames from the primary.
+    let replicated = db.sync().await.unwrap();
+    println!("replicated up to frame {:?}", replicated.frame_no());
+
+    let conn = db.connect().unwrap();
+    // Reads hit the local copy; writes are proxied to the primary.
+    conn.execute("INSERT INTO users (email) VALUES ('bob@example.org')", ())
+        .await
+        .unwrap();
+    let mut rows = conn.query("SELECT count(*) FROM users", ()).await.unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+    println!("rows: {}", row.get::<i64>(0).unwrap());
+}
+```
+
+How replication works under the hood:
+
+- The primary ships its write-ahead log as a stream of **frames**; replicas
+  apply them in order (frame injection / log shipping).
+- When a replica falls far behind, the primary serves a **snapshot** instead of
+  replaying every frame.
+- Replication can run **encrypted**, and the primary/replica server topology
+  supports a write-proxy so replicas stay read-your-writes consistent.
+- The standalone server (`sqld`) exposes the same mechanism for the
+  primary/replica cluster topology.
+
+More variants (local sync, remote writes, encryption, offline writes) are in
+[`sqlanywhere/examples`](sqlanywhere/examples), and the replication tests in
+[`sqlanywhere/tests/replication.rs`](sqlanywhere/tests/replication.rs) and
+[`sqlanywhere-server/tests/embedded_replica`](sqlanywhere-server/tests/embedded_replica)
+are runnable references.
+
 ## Repository layout
 
 ```

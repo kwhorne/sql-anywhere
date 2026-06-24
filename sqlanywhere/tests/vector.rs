@@ -4,31 +4,43 @@
 //! vector index with approximate-nearest-neighbour search, and index
 //! consistency across updates and deletes.
 
-use sqlanywhere::{Connection, Database};
+use sqlanywhere::{Builder, Connection};
 
 async fn conn() -> Connection {
-    let db = Database::open(":memory:").unwrap();
+    let db = Builder::new_local(":memory:").build().await.unwrap();
     db.connect().unwrap()
 }
 
 /// First column of the first row as text.
 async fn text(conn: &Connection, sql: &str) -> String {
     let mut rows = conn.query(sql, ()).await.unwrap();
-    let row = rows.next().await.unwrap().expect("expected at least one row");
+    let row = rows
+        .next()
+        .await
+        .unwrap()
+        .expect("expected at least one row");
     row.get::<String>(0).unwrap()
 }
 
 /// First column of the first row as a float.
 async fn real(conn: &Connection, sql: &str) -> f64 {
     let mut rows = conn.query(sql, ()).await.unwrap();
-    let row = rows.next().await.unwrap().expect("expected at least one row");
+    let row = rows
+        .next()
+        .await
+        .unwrap()
+        .expect("expected at least one row");
     row.get::<f64>(0).unwrap()
 }
 
 /// First column of the first row as an integer.
 async fn int(conn: &Connection, sql: &str) -> i64 {
     let mut rows = conn.query(sql, ()).await.unwrap();
-    let row = rows.next().await.unwrap().expect("expected at least one row");
+    let row = rows
+        .next()
+        .await
+        .unwrap()
+        .expect("expected at least one row");
     row.get::<i64>(0).unwrap()
 }
 
@@ -104,7 +116,7 @@ async fn vector_distance_functions() {
             "SELECT vector_distance_cos(vector32('[1,0]'), vector32('[1,0]'))"
         )
         .await
-            .abs()
+        .abs()
             < 1e-6
     );
     assert!(
@@ -200,9 +212,12 @@ async fn vector_index_consistent_after_update_and_delete() {
     assert_eq!(int(&conn, "SELECT count(*) FROM items").await, 3);
 
     // Move row 4 onto the query point and confirm it becomes the nearest.
-    conn.execute("UPDATE items SET emb = vector32('[1,1,1,1]') WHERE id = 4", ())
-        .await
-        .unwrap();
+    conn.execute(
+        "UPDATE items SET emb = vector32('[1,1,1,1]') WHERE id = 4",
+        (),
+    )
+    .await
+    .unwrap();
     let nearest = ids(
         &conn,
         "SELECT items.id FROM vector_top_k('items_idx', vector32('[1,1,1,1]'), 1) k \
@@ -220,11 +235,14 @@ async fn vector_index_persists_across_reopen() {
 
     // Phase 1: create, index and populate on disk.
     {
-        let db = Database::open(path).unwrap();
+        let db = Builder::new_local(path).build().await.unwrap();
         let conn = db.connect().unwrap();
-        conn.execute("CREATE TABLE emb (id INTEGER PRIMARY KEY, v FLOAT32(4))", ())
-            .await
-            .unwrap();
+        conn.execute(
+            "CREATE TABLE emb (id INTEGER PRIMARY KEY, v FLOAT32(4))",
+            (),
+        )
+        .await
+        .unwrap();
         conn.execute("CREATE INDEX emb_idx ON emb(sqlanywhere_vector_idx(v))", ())
             .await
             .unwrap();
@@ -241,7 +259,7 @@ async fn vector_index_persists_across_reopen() {
 
     // Phase 2: reopen from disk and query the persisted vector index.
     {
-        let db = Database::open(path).unwrap();
+        let db = Builder::new_local(path).build().await.unwrap();
         let conn = db.connect().unwrap();
         let near = ids(
             &conn,

@@ -100,6 +100,45 @@ reference is in
 - WebAssembly user-defined functions
 - A virtual write-ahead log interface (pluggable WAL backends)
 - `xPreparedSql` — pass the original SQL string down to virtual tables
+- Native **vector search** with a built-in DiskANN index (see below)
+
+## Vector search
+
+SQL Anywhere stores embeddings as a native column type and offers approximate
+nearest-neighbour (ANN) search through a built-in DiskANN index — no extension
+to load. Vectors come in several precisions (`FLOAT32`, `FLOAT64`, `FLOAT16`,
+`FLOAT8`, `FLOAT1BIT`, `FLOATB16`) and both L2 and cosine distance are built in.
+
+```sql
+-- Store embeddings in a typed column.
+CREATE TABLE movies (
+  id    INTEGER PRIMARY KEY,
+  title TEXT,
+  emb   FLOAT32(4)
+);
+
+-- Build a DiskANN index for fast similarity search.
+CREATE INDEX movies_idx ON movies(sqlanywhere_vector_idx(emb));
+
+INSERT INTO movies VALUES
+  (1, 'Action',   vector32('[1, 0, 0, 0]')),
+  (2, 'Romance',  vector32('[0, 1, 0, 0]')),
+  (3, 'Thriller', vector32('[0.8, 0.2, 0, 0]'));
+
+-- Find the 2 nearest neighbours of a query vector.
+SELECT movies.title
+FROM   vector_top_k('movies_idx', vector32('[1, 0, 0, 0]'), 2) AS k
+JOIN   movies ON movies.id = k.id;
+-- => 'Action', 'Thriller'
+```
+
+Useful functions: `vector32()` / `vector64()` / … to build vectors,
+`vector_extract()` to read them back, `vector_distance_l2()` and
+`vector_distance_cos()` for distances, and `vector_top_k()` for ANN search.
+The index stays consistent across `INSERT`, `UPDATE` and `DELETE`, and persists
+to disk like any other SQLite data. See
+[`sqlanywhere/tests/vector.rs`](sqlanywhere/tests/vector.rs) for runnable
+examples.
 
 ## Repository layout
 

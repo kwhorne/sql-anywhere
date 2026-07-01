@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into an L2-normalized vector literal (hashing trick) for inline
   `vector32(embed(...))`, no external pre-compute. Lexical, not semantic; swap in
   a real model for production. Covered by `sqlanywhere/tests/embed.rs`.
+- **Local RAG example** — `sqlanywhere/examples/local_rag.rs`, a runnable
+  end-to-end retrieval pipeline combining `embed()`, a quantized DiskANN index,
+  FTS5, and hybrid RRF fusion in a single embedded database.
 - `docs/ROADMAP.md` — direction for 0.3.0 ("vector-native edge").
 
 ## [0.2.0] - 2026-06-23

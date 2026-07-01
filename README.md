@@ -210,6 +210,25 @@ ORDER BY COALESCE(1.0/(60+v.vrank),0) + COALESCE(1.0/(60+f.frank),0) DESC;
 See [`sqlanywhere/tests/hybrid_search.rs`](sqlanywhere/tests/hybrid_search.rs)
 for a runnable, tested example.
 
+### Putting it together: local RAG
+
+[`sqlanywhere/examples/local_rag.rs`](sqlanywhere/examples/local_rag.rs) is a
+complete, runnable retrieval pipeline in a single embedded database — `embed()`
+for inline vectors, a quantized DiskANN index, an FTS5 keyword index, and hybrid
+RRF retrieval:
+
+```sh
+cargo run -p sqlanywhere --example local_rag
+```
+
+```text
+Q: how does rust handle memory and ownership
+  1. [Ownership] Rust enforces memory safety through ownership and borrowing.
+  ...
+Q: similarity search over embeddings
+  1. [Vectors] A vector database indexes embeddings for similarity search.
+```
+
 ## Replication & embedded replicas
 
 An **embedded replica** is a full SQL Anywhere database that lives inside your

@@ -31,6 +31,9 @@ engine wherever possible.
       trick (lexical, not semantic). Covered by `sqlanywhere/tests/embed.rs`.
       Next: a pluggable semantic backend (local ONNX / hosted API) and a
       SQL-level `embed()` UDF for use from `sqld`. *(reference embedder shipped)*
+- [x] **Local RAG capstone example** — `sqlanywhere/examples/local_rag.rs` ties
+      embed + quantized DiskANN + FTS5 + hybrid RRF into one runnable retrieval
+      pipeline. *(landed post-0.2.0)*
 - [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
       ~5.5× smaller). Next: auto-select a default based on index size and a
       recall/size knob. *(shipped opt-in; auto-default still open)*

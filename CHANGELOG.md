@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vector quantization** — `compress_neighbors=float16|float8|float1bit` on the
   DiskANN index shrinks the on-disk index up to ~5.5× (measured) for edge
   devices, with search still functional. Covered by `sqlanywhere/tests/vector.rs`.
+- **`embed()` reference embedder** — `sqlanywhere::embed(text, dims)` turns text
+  into an L2-normalized vector literal (hashing trick) for inline
+  `vector32(embed(...))`, no external pre-compute. Lexical, not semantic; swap in
+  a real model for production. Covered by `sqlanywhere/tests/embed.rs`.
 - `docs/ROADMAP.md` — direction for 0.3.0 ("vector-native edge").
 
 ## [0.2.0] - 2026-06-23

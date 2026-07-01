@@ -158,7 +158,10 @@ pub use params::params_from_iter;
 mod auth;
 mod connection;
 mod database;
+mod embed;
 mod load_extension_guard;
+
+pub use embed::embed;
 
 cfg_parser! {
     mod parser;

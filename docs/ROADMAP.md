@@ -25,10 +25,12 @@ Ordered by value / risk. Items build on capabilities that already exist in the
 engine wherever possible.
 
 ### AI-native
-- [ ] **`embed()` UDF** — a pluggable scalar function that turns text into a
-      vector inline (`INSERT ... VALUES (embed(?))`), backed by a local ONNX
-      model or an external embeddings API. Builds on the existing WASM-UDF
-      infrastructure. *(medium effort, high value)*
+- [x] **`embed()` helper** — dependency-free reference embedder
+      (`sqlanywhere::embed`) that turns text into a vector literal for
+      `vector32(embed(text, dims))`, no external pre-compute. Uses the hashing
+      trick (lexical, not semantic). Covered by `sqlanywhere/tests/embed.rs`.
+      Next: a pluggable semantic backend (local ONNX / hosted API) and a
+      SQL-level `embed()` UDF for use from `sqld`. *(reference embedder shipped)*
 - [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
       ~5.5× smaller). Next: auto-select a default based on index size and a
       recall/size knob. *(shipped opt-in; auto-default still open)*

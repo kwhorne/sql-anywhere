@@ -161,6 +161,27 @@ the on-disk index shrinks substantially:
 See [`sqlanywhere/tests/vector.rs`](sqlanywhere/tests/vector.rs) for runnable
 examples.
 
+### Embedding text inline
+
+The crate ships a dependency-free reference embedder so you can turn text into a
+vector without a separate pre-compute step:
+
+```rust
+use sqlanywhere::{embed, params};
+
+conn.execute(
+    "INSERT INTO docs (body, emb) VALUES (?, vector32(?))",
+    params![text, embed(text, 128)],
+).await?;
+```
+
+`embed()` uses the hashing trick (bag-of-words hashed into an L2-normalized
+vector), so documents sharing vocabulary get similar vectors — a great
+zero-dependency default for prototyping and hybrid search. It is *lexical*, not
+semantic: for production semantic search, compute embeddings with a real model
+(local ONNX or a hosted API) and store them the same way — the DiskANN index and
+`vector_top_k` work identically regardless of how the vectors were produced.
+
 ### Hybrid search (vector + keyword)
 
 Because the same engine ships DiskANN vector search *and* SQLite's FTS5

@@ -5,25 +5,63 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-06-24
+
+**Theme: vector-native edge.** SQL Anywhere is one of the few engines to ship
+native vector search *and* bi-directional edge replication in the same
+file-compatible SQLite fork. 0.3.0 leans into that: it turns the vector engine
+into a batteries-included toolkit for local-first / edge RAG — embed text
+inline, index it compactly, and retrieve with fused semantic + keyword ranking,
+all inside one embedded database.
+
+Everything below is additive and opt-in; databases that don't use the new
+features remain byte-compatible with stock SQLite.
 
 ### Added
 
-- **Hybrid search (vector + FTS5)** — documented pattern and tested example for
-  fusing DiskANN vector similarity with full-text keyword relevance via
-  Reciprocal Rank Fusion in a single query. See
-  `sqlanywhere/tests/hybrid_search.rs` and the README.
-- **Vector quantization** — `compress_neighbors=float16|float8|float1bit` on the
-  DiskANN index shrinks the on-disk index up to ~5.5× (measured) for edge
-  devices, with search still functional. Covered by `sqlanywhere/tests/vector.rs`.
-- **`embed()` reference embedder** — `sqlanywhere::embed(text, dims)` turns text
-  into an L2-normalized vector literal (hashing trick) for inline
-  `vector32(embed(...))`, no external pre-compute. Lexical, not semantic; swap in
-  a real model for production. Covered by `sqlanywhere/tests/embed.rs`.
-- **Local RAG example** — `sqlanywhere/examples/local_rag.rs`, a runnable
-  end-to-end retrieval pipeline combining `embed()`, a quantized DiskANN index,
-  FTS5, and hybrid RRF fusion in a single embedded database.
-- `docs/ROADMAP.md` — direction for 0.3.0 ("vector-native edge").
+- **Hybrid search (vector + FTS5).** Fuse DiskANN vector similarity with SQLite
+  FTS5 full-text relevance in a single query using Reciprocal Rank Fusion (RRF),
+  so documents strong in *both* signals rank highest — the state-of-the-art
+  retrieval pattern for RAG. No new engine code: it composes primitives the
+  engine already ships. Documented in the README; covered by
+  `sqlanywhere/tests/hybrid_search.rs` (3 tests).
+
+- **Vector quantization for the edge.** The DiskANN index now accepts
+  `compress_neighbors=float16|float8|float1bit` to quantize the neighbour
+  vectors stored in the graph. Measured on 800×32-dim cosine vectors the on-disk
+  index shrinks **1.9× / 2.8× / 5.5×** respectively while search keeps working —
+  a large win on memory-constrained devices. Covered by
+  `sqlanywhere/tests/vector.rs` (2 tests).
+
+- **`embed()` reference text embedder.** `sqlanywhere::embed(text, dims)` turns
+  text into an L2-normalized vector literal for inline
+  `vector32(embed(text, dims))`, so you can build a vector column without a
+  separate pre-compute step. Uses the hashing trick (FNV-1a bag-of-words), so
+  it is deterministic and dependency-free. It is *lexical*, not semantic — for
+  production semantic search, compute embeddings with a real model and store
+  them the same way. Covered by `src/embed.rs` (5 unit tests + doctest) and
+  `sqlanywhere/tests/embed.rs` (E2E).
+
+- **Local RAG capstone example.** `sqlanywhere/examples/local_rag.rs` is a
+  runnable, end-to-end retrieval pipeline in a single embedded database:
+  `embed()` → quantized (float8) DiskANN index → FTS5 keyword index → hybrid RRF
+  retrieval. Run it with `cargo run -p sqlanywhere --example local_rag`.
+
+- **`docs/VECTOR_SEARCH.md`** — a why / how / examples guide for all of the
+  above, and **`docs/ROADMAP.md`** — direction for the release.
+
+### Verification
+
+- New automated tests for hybrid search, quantization and `embed()` all run in
+  CI. Vector search and replication were re-verified end to end (see
+  `sqlanywhere/tests/vector.rs`, `sqlanywhere/tests/replication.rs`, and the
+  server `embedded_replica` suite).
+
+### Notes
+
+- CRDT offline-merge (cr-sqlite) remains on the roadmap; it requires a pinned
+  nightly toolchain plus `build-std` and C linking and is tracked as a separate
+  effort.
 
 ## [0.2.0] - 2026-06-23
 
@@ -99,5 +137,6 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.3.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.1.0

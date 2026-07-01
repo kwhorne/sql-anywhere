@@ -140,6 +140,34 @@ to disk like any other SQLite data. See
 [`sqlanywhere/tests/vector.rs`](sqlanywhere/tests/vector.rs) for runnable
 examples.
 
+### Hybrid search (vector + keyword)
+
+Because the same engine ships DiskANN vector search *and* SQLite's FTS5
+full-text index, you can fuse semantic and keyword relevance in a single SQL
+query — the recommended pattern for local-first / edge RAG. The example below
+uses Reciprocal Rank Fusion (RRF) so documents strong in **both** signals rank
+highest:
+
+```sql
+WITH v AS (                              -- semantic (vector) ranking
+  SELECT k.id, ROW_NUMBER() OVER () AS vrank
+  FROM vector_top_k('docs_vec', vector32('[1,0,0,0]'), 20) k
+),
+f AS (                                   -- keyword (FTS5) ranking
+  SELECT docs_fts.rowid AS id, ROW_NUMBER() OVER (ORDER BY rank) AS frank
+  FROM docs_fts WHERE docs_fts MATCH 'ownership'
+)
+SELECT d.id, d.title
+FROM docs d
+LEFT JOIN v ON v.id = d.id
+LEFT JOIN f ON f.id = d.id
+WHERE v.id IS NOT NULL OR f.id IS NOT NULL
+ORDER BY COALESCE(1.0/(60+v.vrank),0) + COALESCE(1.0/(60+f.frank),0) DESC;
+```
+
+See [`sqlanywhere/tests/hybrid_search.rs`](sqlanywhere/tests/hybrid_search.rs)
+for a runnable, tested example.
+
 ## Replication & embedded replicas
 
 An **embedded replica** is a full SQL Anywhere database that lives inside your
@@ -280,10 +308,11 @@ in-repo specs and guides below are the source references:
 - **API** — 100% of the SQLite C API keeps working; we only *add* APIs.
 - **Embeddable** — it always runs in-process, no network required.
 
-## Changelog
+## Changelog & roadmap
 
-See [CHANGELOG.md](CHANGELOG.md) for the release history. The current release is
-**0.2.0**.
+See [CHANGELOG.md](CHANGELOG.md) for the release history (current release:
+**0.2.0**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
+headed next.
 
 ## Contributing
 

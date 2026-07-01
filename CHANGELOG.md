@@ -5,6 +5,16 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Hybrid search (vector + FTS5)** — documented pattern and tested example for
+  fusing DiskANN vector similarity with full-text keyword relevance via
+  Reciprocal Rank Fusion in a single query. See
+  `sqlanywhere/tests/hybrid_search.rs` and the README.
+- `docs/ROADMAP.md` — direction for 0.3.0 ("vector-native edge").
+
 ## [0.2.0] - 2026-06-23
 
 The first stabilization release after the initial fork. Focuses on build

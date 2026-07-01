@@ -228,6 +228,87 @@ async fn vector_index_consistent_after_update_and_delete() {
 }
 
 #[tokio::test]
+async fn quantized_index_variants_build_and_search() {
+    // `compress_neighbors` quantizes the neighbour vectors stored in the DiskANN
+    // graph, shrinking the index (float1bit is ~5x smaller than float32) while
+    // keeping search working. Verify every variant builds and returns results.
+    for compress in ["float32", "float16", "float8", "float1bit"] {
+        let conn = conn().await;
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v FLOAT32(4))", ())
+            .await
+            .unwrap();
+        conn.execute(
+            &format!(
+                "CREATE INDEX t_idx ON t(sqlanywhere_vector_idx(v, 'metric=cosine', 'compress_neighbors={compress}'))"
+            ),
+            (),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("index build failed for {compress}: {e}"));
+        conn.execute(
+            "INSERT INTO t VALUES \
+             (1,vector32('[1,0,0,0]')), \
+             (2,vector32('[0,1,0,0]')), \
+             (3,vector32('[0,0,1,0]')), \
+             (4,vector32('[0,0,0,1]'))",
+            (),
+        )
+        .await
+        .unwrap();
+
+        let hits = ids(
+            &conn,
+            "SELECT k.id FROM vector_top_k('t_idx', vector32('[1,0,0,0]'), 3) k",
+        )
+        .await;
+        assert_eq!(hits.len(), 3, "{compress}: expected 3 hits");
+    }
+}
+
+#[tokio::test]
+async fn quantized_float8_index_preserves_nearest_neighbour() {
+    // float8 keeps enough precision to preserve the nearest-neighbour ranking
+    // for well-separated vectors.
+    let conn = conn().await;
+    conn.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, emb FLOAT32(4))",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "CREATE INDEX items_idx ON items(sqlanywhere_vector_idx(emb, 'metric=cosine', 'compress_neighbors=float8'))",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        "INSERT INTO items VALUES \
+         (1,vector32('[1,2,3,4]')), \
+         (2,vector32('[-100,-100,-100,-100]')), \
+         (3,vector32('[10,10,-10,-10]')), \
+         (4,vector32('[1,2,3,5]'))",
+        (),
+    )
+    .await
+    .unwrap();
+
+    // Query [1,2,3,4.1] sits between id 1 ([1,2,3,4]) and id 4 ([1,2,3,5]) but
+    // closest to id 1; float8 compression must preserve that ranking.
+    let nearest = ids(
+        &conn,
+        "SELECT k.id FROM vector_top_k('items_idx', vector32('[1,2,3,4.1]'), 2) k",
+    )
+    .await;
+    assert_eq!(
+        nearest.first(),
+        Some(&1),
+        "nearest to [1,2,3,4.1] should be id 1"
+    );
+    assert_eq!(nearest.len(), 2);
+}
+
+#[tokio::test]
 async fn vector_index_persists_across_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vectors.db");

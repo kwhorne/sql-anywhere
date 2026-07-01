@@ -136,8 +136,29 @@ Useful functions: `vector32()` / `vector64()` / … to build vectors,
 `vector_extract()` to read them back, `vector_distance_l2()` and
 `vector_distance_cos()` for distances, and `vector_top_k()` for ANN search.
 The index stays consistent across `INSERT`, `UPDATE` and `DELETE`, and persists
-to disk like any other SQLite data. See
-[`sqlanywhere/tests/vector.rs`](sqlanywhere/tests/vector.rs) for runnable
+to disk like any other SQLite data.
+
+**Quantization for the edge.** Pass `compress_neighbors=` to the index to
+quantize the neighbour vectors stored in the DiskANN graph — a big win when
+running on constrained devices:
+
+```sql
+CREATE INDEX movies_idx ON movies(
+  sqlanywhere_vector_idx(emb, 'metric=cosine', 'compress_neighbors=float1bit')
+);
+```
+
+Measured on 800 × 32-dim vectors (cosine), search still returns results while
+the on-disk index shrinks substantially:
+
+| `compress_neighbors` | Index size | vs float32 |
+|----------------------|-----------|-----------|
+| `float32` (default)  | 3352 KB   | 1× |
+| `float16`            | 1744 KB   | 1.9× smaller |
+| `float8`             | 1212 KB   | 2.8× smaller |
+| `float1bit`          | 604 KB    | 5.5× smaller |
+
+See [`sqlanywhere/tests/vector.rs`](sqlanywhere/tests/vector.rs) for runnable
 examples.
 
 ### Hybrid search (vector + keyword)

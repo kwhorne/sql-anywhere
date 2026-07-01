@@ -14,6 +14,10 @@ combination — a **vector-native edge database** for local-first and RAG.
 - **Hybrid search (vector + FTS5)** — RRF fusion of DiskANN and full-text
   ranking in a single query. Documented in the README and covered by
   `sqlanywhere/tests/hybrid_search.rs`. *(landed post-0.2.0)*
+- **Vector quantization** — `compress_neighbors=float16|float8|float1bit` on the
+  DiskANN index shrinks the on-disk index up to ~5.5× for edge devices.
+  Documented in the README and covered by `sqlanywhere/tests/vector.rs`.
+  *(landed post-0.2.0)*
 
 ## 0.3.0 — "vector-native edge" (proposed)
 
@@ -25,9 +29,9 @@ engine wherever possible.
       vector inline (`INSERT ... VALUES (embed(?))`), backed by a local ONNX
       model or an external embeddings API. Builds on the existing WASM-UDF
       infrastructure. *(medium effort, high value)*
-- [ ] **Quantization by default** — auto-select `FLOAT8` / `FLOAT1BIT` storage
-      for large indexes (4–32× smaller) with a recall/size knob. The vector
-      types already exist. *(low–medium effort)*
+- [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
+      ~5.5× smaller). Next: auto-select a default based on index size and a
+      recall/size knob. *(shipped opt-in; auto-default still open)*
 - [ ] **`EXPLAIN` for the DiskANN index** — expose visited-node counts and a
       recall estimate for query tuning. *(medium effort)*
 

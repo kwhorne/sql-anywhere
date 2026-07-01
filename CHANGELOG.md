@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fusing DiskANN vector similarity with full-text keyword relevance via
   Reciprocal Rank Fusion in a single query. See
   `sqlanywhere/tests/hybrid_search.rs` and the README.
+- **Vector quantization** — `compress_neighbors=float16|float8|float1bit` on the
+  DiskANN index shrinks the on-disk index up to ~5.5× (measured) for edge
+  devices, with search still functional. Covered by `sqlanywhere/tests/vector.rs`.
 - `docs/ROADMAP.md` — direction for 0.3.0 ("vector-native edge").
 
 ## [0.2.0] - 2026-06-23

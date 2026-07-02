@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to end (two nodes converge; concurrent same-row edits resolve the same way on
   both sides). Guide: `docs/CRDT.md`; continuously built by the `crsqlite.yml`
   CI workflow. Not yet bundled into `sqld` or the prebuilt binaries.
+- **CRDT via the Rust API.** `sqlanywhere/examples/crdt_sync.rs` demonstrates
+  offline multi-writer merge driven entirely through the `sqlanywhere` client
+  (`load_extension` + `crsql_as_crr` + `crsql_changes`), and
+  `sqlanywhere/tests/crdt.rs` asserts it (gated on `SQLANYWHERE_CRSQLITE`, run in
+  CI against a freshly built extension). Prebuilt extensions are attached to
+  releases for macOS Apple Silicon and Ubuntu Intel/ARM.
 
 ## [0.3.0] - 2026-06-24
 

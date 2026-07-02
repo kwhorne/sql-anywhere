@@ -110,6 +110,20 @@ conn.load_extension_disable()?;
 // ... crsql_as_crr('table'), edit, exchange crsql_changes, crsql_finalize()
 ```
 
+A complete, runnable version of the two-node merge above lives in
+[`sqlanywhere/examples/crdt_sync.rs`](../sqlanywhere/examples/crdt_sync.rs):
+
+```sh
+scripts/build-crsqlite.sh                       # build the extension
+cargo run -p sqlanywhere --example crdt_sync     # uses the default build path
+```
+
+The same flow is asserted by the gated integration test
+[`sqlanywhere/tests/crdt.rs`](../sqlanywhere/tests/crdt.rs), which runs when
+`SQLANYWHERE_CRSQLITE` points at a built extension (and is skipped otherwise, so
+the main workspace CI is unaffected). The `cr-sqlite extension` CI workflow runs
+it against a freshly built extension on every relevant change.
+
 ## Key functions
 
 | Function / table | Purpose |

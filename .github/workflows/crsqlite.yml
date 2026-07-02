@@ -77,6 +77,17 @@ jobs:
           tar -C dist -czf "${name}.tar.gz" "$name"
           echo "asset=${name}.tar.gz" >> "$GITHUB_OUTPUT"
 
+      # Verify the extension works through the sqlanywhere Rust API (load +
+      # crsql_as_crr + changeset merge + conflict resolution). Run once, on the
+      # standard Linux target, to keep the matrix fast.
+      - name: Run Rust CRDT integration test
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        env:
+          SQLANYWHERE_CRSQLITE: ${{ github.workspace }}/sqlanywhere-sqlite3/ext/crr/dist/crsqlite.so
+        run: |
+          sudo apt-get install -y libclang-dev protobuf-compiler
+          cargo test -p sqlanywhere --test crdt
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

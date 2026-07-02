@@ -358,6 +358,7 @@ Full documentation lives at **<https://elyracode.com/docs/sqlanywhere>**. The
 in-repo specs and guides below are the source references:
 
 - [Vector search & local RAG guide](docs/VECTOR_SEARCH.md) — why / how / examples
+- [CRDT offline merge (cr-sqlite)](docs/CRDT.md) — conflict-free offline multi-writer sync (experimental)
 - [User guide](docs/USER_GUIDE.md) · [Design overview](docs/DESIGN.md) · [Consistency model](docs/CONSISTENCY_MODEL.md)
 - Protocol specs: [Hrana 3](docs/HRANA_3_SPEC.md), [HTTP v2](docs/HTTP_V2_SPEC.md), [Admin API](docs/ADMIN_API.md)
 - C engine extensions: [sqlanywhere_extensions.md](sqlanywhere-sqlite3/doc/sqlanywhere_extensions.md)

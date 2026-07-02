@@ -41,9 +41,13 @@ engine wherever possible.
       recall estimate for query tuning. *(medium effort)*
 
 ### Edge / local-first
-- [ ] **CRDT offline merge** — activate the vendored cr-sqlite (`ext/crr`) to
-      allow conflict-free multi-writer offline sync. Most differentiating,
-      largest effort. *(high effort, high value)*
+- [x] **CRDT offline merge (experimental)** — the vendored cr-sqlite (`ext/crr`)
+      builds into a loadable extension via `scripts/build-crsqlite.sh` and turns
+      tables into conflict-free replicated relations for offline multi-writer
+      sync. Verified end to end (two nodes converge, concurrent conflicts
+      resolve deterministically). See [docs/CRDT.md](CRDT.md). Next: ship it in
+      `sqld` / prebuilt binaries and add per-platform artifacts.
+      *(experimental build shipped)*
 - [ ] **Selective / partial replication** — replicate only rows matching a
       predicate (per-user / per-tenant) instead of the whole database.
       *(high effort)*

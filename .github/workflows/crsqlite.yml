@@ -1,0 +1,48 @@
+name: cr-sqlite extension
+
+# Builds the experimental cr-sqlite (CRDT) loadable extension. Kept separate
+# from the main CI (and NOT a required check) because it needs a pinned nightly
+# toolchain + build-std and only matters when the ext/crr sources change.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "sqlanywhere-sqlite3/ext/crr/**"
+      - "scripts/build-crsqlite.sh"
+      - ".github/workflows/crsqlite.yml"
+  pull_request:
+    paths:
+      - "sqlanywhere-sqlite3/ext/crr/**"
+      - "scripts/build-crsqlite.sh"
+      - ".github/workflows/crsqlite.yml"
+
+jobs:
+  build:
+    name: Build cr-sqlite loadable extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install pinned nightly + rust-src
+        run: |
+          rustup toolchain install nightly-2023-10-05 --component rust-src --profile minimal
+
+      - name: Build the extension
+        run: scripts/build-crsqlite.sh
+
+      - name: Verify the extension was produced
+        run: |
+          set -eux
+          test -f sqlanywhere-sqlite3/ext/crr/dist/crsqlite.so
+          file sqlanywhere-sqlite3/ext/crr/dist/crsqlite.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crsqlite-linux-x86_64
+          path: sqlanywhere-sqlite3/ext/crr/dist/crsqlite.so
+          if-no-files-found: error

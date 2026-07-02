@@ -5,6 +5,19 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **CRDT offline merge (experimental).** The vendored cr-sqlite extension
+  (`sqlanywhere-sqlite3/ext/crr`) now builds into a loadable extension via
+  `scripts/build-crsqlite.sh`, turning tables into conflict-free replicated
+  relations with `crsql_as_crr(...)`. Multiple databases can be edited offline
+  and merged deterministically by exchanging `crsql_changes` rows. Verified end
+  to end (two nodes converge; concurrent same-row edits resolve the same way on
+  both sides). Guide: `docs/CRDT.md`; continuously built by the `crsqlite.yml`
+  CI workflow. Not yet bundled into `sqld` or the prebuilt binaries.
+
 ## [0.3.0] - 2026-06-24
 
 **Theme: vector-native edge.** SQL Anywhere is one of the few engines to ship

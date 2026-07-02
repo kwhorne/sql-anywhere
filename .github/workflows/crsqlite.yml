@@ -69,6 +69,7 @@ jobs:
           test -f "$out"
           file "$out"
           tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="${tag//\//-}"   # sanitize slashes from PR refs like '15/merge'
           name="crsqlite-${tag}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "$out" "dist/$name/"

@@ -5,7 +5,11 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-07-02
+
+Experimental **CRDT offline merge** via the vendored cr-sqlite extension —
+conflict-free multi-writer offline sync, the other half of a local-first stack
+alongside embedded replicas. Additive and opt-in.
 
 ### Added
 
@@ -156,6 +160,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.3.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.1.0

@@ -45,9 +45,10 @@ engine wherever possible.
       builds into a loadable extension via `scripts/build-crsqlite.sh` and turns
       tables into conflict-free replicated relations for offline multi-writer
       sync. Verified end to end (two nodes converge, concurrent conflicts
-      resolve deterministically). See [docs/CRDT.md](CRDT.md). Next: ship it in
-      `sqld` / prebuilt binaries and add per-platform artifacts.
-      *(experimental build shipped)*
+      resolve deterministically). See [docs/CRDT.md](CRDT.md). Prebuilt
+      extensions are attached to releases for macOS Apple Silicon and Ubuntu
+      Intel/ARM. Next: optional static linking into `sqld`.
+      *(experimental; per-platform artifacts shipped)*
 - [ ] **Selective / partial replication** — replicate only rows matching a
       predicate (per-user / per-tenant) instead of the whole database.
       *(high effort)*

@@ -25,8 +25,11 @@ state — including deterministic resolution when two nodes edit the same row.
 
 ## How
 
-1. **Build the extension** (needs a pinned nightly + `build-std`; wrapped in a
-   script):
+1. **Get the extension.** Download a prebuilt archive from the
+   [releases page](https://github.com/kwhorne/sql-anywhere/releases)
+   (`crsqlite-<tag>-<target>.tar.gz`, for macOS Apple Silicon and Ubuntu
+   Intel/ARM), or build it yourself (needs a pinned nightly + `build-std`,
+   wrapped in a script):
 
    ```sh
    scripts/build-crsqlite.sh
@@ -119,9 +122,9 @@ conn.load_extension_disable()?;
 
 ## Limitations & roadmap
 
-- **Experimental / manual build.** The extension is not yet shipped in `sqld` or
-  the prebuilt binaries. Next steps: a CI job that publishes the extension per
-  platform, and optional static linking into `sqld`.
+- **Experimental.** Prebuilt extensions are attached to releases per platform,
+  but the extension is not yet bundled *inside* `sqld`. Next step: optional
+  static linking into `sqld` so no separate load is needed.
 - Schema rules: `NOT NULL` columns need a `DEFAULT`; primary keys are required.
 - See the upstream [cr-sqlite docs](https://vlcn.io) for the full data model,
   including causal-length deletes and fractional indexing.

@@ -1,6 +1,6 @@
 [package]
 name = "bottomless"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 keywords = ["sqlanywhere", "sqlite", "s3", "wal", "replication"]

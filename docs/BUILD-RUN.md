@@ -1,8 +1,9 @@
 # Build and run sqld
 
-There are three ways to build and run sqld:
+There are several ways to build and run sqld:
 
 - [Download a prebuilt binary](#download-a-prebuilt-binary)
+- [Using a prebuilt Docker image](#using-a-prebuilt-docker-image)
 - [Using Homebrew](#build-and-install-with-homebrew)
 - [From source using Rust](#build-from-source-using-rust)
 
@@ -43,6 +44,26 @@ executable.
 > Windows is not currently supported as a prebuilt target — sqld's
 > replication layer depends on Unix-only file APIs. Build from source with
 > Rust if you need to run on other platforms.
+
+## Using a prebuilt Docker image
+
+Each release publishes a multi-arch `sqld` image (`linux/amd64` and
+`linux/arm64`) to the GitHub Container Registry. Run the latest release on port
+8080 with:
+
+```bash
+docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:latest
+```
+
+Or pin a specific version:
+
+```bash
+docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:0.4.0
+```
+
+The image is built for both Intel (amd64) and ARM (arm64), so Docker pulls the
+right variant for your host automatically. Available tags are listed on the
+[container package page](https://github.com/kwhorne/sql-anywhere/pkgs/container/sqlanywhere-server).
 
 ## Build and install with Homebrew
 

@@ -343,14 +343,15 @@ cd sqlanywhere-sqlite3 && ./sqlanywhere
 ```
 
 ```console
-SQL Anywhere version 0.3.1 (based on SQLite version 3.43.0)
+SQL Anywhere version 0.4.0 (based on SQLite version 3.43.0)
 Enter ".help" for usage hints.
 Connected to a transient in-memory database.
 sqlanywhere>
 ```
 
-Running the server (and downloading prebuilt `sqld` binaries) is covered in
-[docs/BUILD-RUN.md](docs/BUILD-RUN.md).
+Running the server — as a prebuilt binary, a multi-arch Docker image
+(`ghcr.io/kwhorne/sqlanywhere-server`, Intel + ARM), or from source — is covered
+in [docs/BUILD-RUN.md](docs/BUILD-RUN.md).
 
 ## Documentation
 
@@ -375,7 +376,7 @@ in-repo specs and guides below are the source references:
 ## Changelog & roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) for the release history (current release:
-**0.3.1**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
+**0.4.0**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
 headed next.
 
 ## Contributing

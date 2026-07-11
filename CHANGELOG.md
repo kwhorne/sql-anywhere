@@ -5,7 +5,11 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-07-08
+
+The flagship **collaborative, syncable vector index** — CRDT offline merge ×
+DiskANN vector search × inline `embed()` — plus multi-arch **Docker images** for
+Ubuntu Intel and ARM alongside the prebuilt binaries.
 
 ### Added
 
@@ -17,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by `sqlanywhere/tests/collab_vector.rs` (a doc indexed only on node B becomes
   the nearest neighbour on node A after merge) and demonstrated by
   `sqlanywhere/examples/collab_vector.rs`. Guide: `docs/COLLABORATIVE_VECTOR.md`.
+- **Docker images.** Multi-arch `sqld` container images (`linux/amd64` and
+  `linux/arm64`) are built and published to `ghcr.io/kwhorne/sqlanywhere-server`
+  on each release, alongside the prebuilt binaries.
 
 ## [0.3.1] - 2026-07-02
 
@@ -173,6 +180,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.4.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.4.0
 [0.3.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.2.0

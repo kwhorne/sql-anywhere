@@ -25,6 +25,13 @@ Ordered by value / risk. Items build on capabilities that already exist in the
 engine wherever possible.
 
 ### AI-native
+
+- [x] **Collaborative, syncable vector index** — CRDT × vector search × `embed()`:
+      a shared semantic index that several devices build offline and merge
+      conflict-free, then search over all documents. Verified
+      (`sqlanywhere/tests/collab_vector.rs`) and documented
+      ([docs/COLLABORATIVE_VECTOR.md](COLLABORATIVE_VECTOR.md)).
+      *(experimental; landed post-0.3.1)*
 - [x] **`embed()` helper** — dependency-free reference embedder
       (`sqlanywhere::embed`) that turns text into a vector literal for
       `vector32(embed(text, dims))`, no external pre-compute. Uses the hashing

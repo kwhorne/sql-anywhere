@@ -87,6 +87,7 @@ jobs:
         run: |
           sudo apt-get install -y libclang-dev protobuf-compiler
           cargo test -p sqlanywhere --test crdt
+          cargo test -p sqlanywhere --test collab_vector
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

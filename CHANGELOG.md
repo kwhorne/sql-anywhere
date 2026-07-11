@@ -5,6 +5,19 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Collaborative, syncable vector index (experimental).** The flagship
+  combination of CRDT offline merge × DiskANN vector search × inline `embed()`:
+  several devices build a semantic index offline and independently, then merge
+  conflict-free — afterwards every device can vector-search over every device's
+  documents (the index is maintained as cr-sqlite applies merged rows). Verified
+  by `sqlanywhere/tests/collab_vector.rs` (a doc indexed only on node B becomes
+  the nearest neighbour on node A after merge) and demonstrated by
+  `sqlanywhere/examples/collab_vector.rs`. Guide: `docs/COLLABORATIVE_VECTOR.md`.
+
 ## [0.3.1] - 2026-07-02
 
 Experimental **CRDT offline merge** via the vendored cr-sqlite extension —

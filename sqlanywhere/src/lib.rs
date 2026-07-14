@@ -161,7 +161,7 @@ mod database;
 mod embed;
 mod load_extension_guard;
 
-pub use embed::embed;
+pub use embed::{embed, to_vector_literal, Embedder, LexicalEmbedder};
 
 cfg_parser! {
     mod parser;

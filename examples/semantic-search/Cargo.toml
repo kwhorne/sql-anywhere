@@ -1,0 +1,24 @@
+# Standalone example crate — deliberately kept OUT of the main workspace so its
+# heavy ML dependencies never touch the core build or CI. It is listed in the
+# root Cargo.toml `exclude` and carries its own empty [workspace] table.
+[workspace]
+
+[package]
+name = "semantic-search"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sqlanywhere = { path = "../../sqlanywhere" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow = "1"
+
+# A real, local, pure-Rust sentence-transformer (all-MiniLM-L6-v2, 384-dim).
+# No C++ runtime; weights are fetched once from the Hugging Face Hub and cached.
+candle-core = "0.8"
+candle-nn = "0.8"
+candle-transformers = "0.8"
+tokenizers = "0.20"
+hf-hub = "0.4"
+serde_json = "1"

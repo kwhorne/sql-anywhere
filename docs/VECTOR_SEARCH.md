@@ -131,6 +131,12 @@ conn.execute(
 
 Declare the `FLOAT32(n)` column to match `MyModel::dims()`.
 
+**Worked example.** [`examples/semantic-search`](../examples/semantic-search)
+runs a real local sentence-transformer (all-MiniLM-L6-v2 via candle) end to end:
+it correctly ranks *"the cat sat on the mat"* first for the query *"a small
+feline rested on a rug"* — which shares no words with it — something the lexical
+embedder cannot do. It also shows how to swap in ONNX or a hosted API.
+
 [`Embedder`]: https://docs.rs/sqlanywhere/latest/sqlanywhere/trait.Embedder.html
 [`LexicalEmbedder`]: https://docs.rs/sqlanywhere/latest/sqlanywhere/struct.LexicalEmbedder.html
 

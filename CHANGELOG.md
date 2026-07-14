@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embedder. The dependency-free `embed()` is now the `LexicalEmbedder`
   implementation of this trait; a `to_vector_literal()` helper formats any raw
   vector for `vector32`. Output of `embed()` is unchanged (back-compatible).
+- **Worked semantic-search example** (`examples/semantic-search`) plugging a real
+  local sentence-transformer (all-MiniLM-L6-v2 via candle) into the `Embedder`
+  trait — kept out of the main workspace so its ML dependencies never touch the
+  core build. Demonstrates true semantic matching (finds "the cat sat on the
+  mat" for "a small feline rested on a rug").
 
 ## [0.4.0] - 2026-07-08
 

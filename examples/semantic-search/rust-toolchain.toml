@@ -1,0 +1,5 @@
+# This example's ML dependencies (candle, hf-hub, icu) require a newer compiler
+# than the core project's pinned 1.85. Kept here so the example builds on stable
+# without changing the core toolchain.
+[toolchain]
+channel = "stable"

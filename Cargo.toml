@@ -17,6 +17,7 @@ members = [
 ]
 
 exclude = [
+    "examples/semantic-search",
     "./sqlanywhere-sqlite3/ext/crr",
     "./sqlanywhere-sqlite3/ext/sqlanywhere-wasi",
     "sqlanywhere-shell",

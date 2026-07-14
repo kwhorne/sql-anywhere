@@ -5,6 +5,17 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Pluggable embeddings (`Embedder` trait).** Bring your own semantic model
+  (local ONNX/candle, or a hosted API) and feed it into the same
+  `vector32(...)` storage and `vector_top_k` search path as the built-in
+  embedder. The dependency-free `embed()` is now the `LexicalEmbedder`
+  implementation of this trait; a `to_vector_literal()` helper formats any raw
+  vector for `vector32`. Output of `embed()` is unchanged (back-compatible).
+
 ## [0.4.0] - 2026-07-08
 
 The flagship **collaborative, syncable vector index** — CRDT offline merge ×

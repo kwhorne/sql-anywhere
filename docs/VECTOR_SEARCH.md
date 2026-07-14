@@ -102,9 +102,37 @@ that share vocabulary get similar vectors, so cosine similarity works as a
 default and for tests.
 
 It is **not** a neural/semantic embedding: no synonyms, no context. For
-production semantic search, compute embeddings with a real model (local ONNX or
-a hosted API) and store the resulting numbers the same way — the index and
-`vector_top_k` behave identically no matter how the vectors were produced.
+production semantic search, plug in a real model — see below.
+
+**Bring your own (semantic) embedder.** `embed()` is just the built-in
+[`LexicalEmbedder`]. The [`Embedder`] trait lets you feed a real model (local
+ONNX/candle, or a hosted API) into the *exact same* `vector32(...)` path — the
+index and `vector_top_k` behave identically no matter how the vectors were
+produced:
+
+```rust
+use sqlanywhere::Embedder;
+
+struct MyModel;
+impl Embedder for MyModel {
+    fn dims(&self) -> usize { 384 }
+    fn embed(&self, text: &str) -> Vec<f32> {
+        // call your local model or hosted API here…
+        my_model::encode(text)
+    }
+}
+
+// embed_literal() formats the vector for vector32(?)
+conn.execute(
+    "INSERT INTO docs (body, emb) VALUES (?, vector32(?))",
+    params![text, MyModel.embed_literal(text)],
+).await?;
+```
+
+Declare the `FLOAT32(n)` column to match `MyModel::dims()`.
+
+[`Embedder`]: https://docs.rs/sqlanywhere/latest/sqlanywhere/trait.Embedder.html
+[`LexicalEmbedder`]: https://docs.rs/sqlanywhere/latest/sqlanywhere/struct.LexicalEmbedder.html
 
 Tests: [`sqlanywhere/tests/embed.rs`](../sqlanywhere/tests/embed.rs).
 

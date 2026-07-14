@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trait — kept out of the main workspace so its ML dependencies never touch the
   core build. Demonstrates true semantic matching (finds "the cat sat on the
   mat" for "a small feline rested on a rug").
+- **Docker release smoke test.** `scripts/smoke-test-docker.sh` boots a published
+  image and asserts the HTTP API serves a real vector search (`vector_top_k` over
+  a DiskANN index). Wired into `docker.yml` to run on both `amd64` and `arm64`
+  after the manifest is published, so a broken release image can never pass
+  silently.
 
 ## [0.4.0] - 2026-07-08
 

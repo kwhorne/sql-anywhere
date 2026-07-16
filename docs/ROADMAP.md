@@ -26,6 +26,10 @@ engine wherever possible.
 
 ### AI-native
 
+- [x] **Search as a chapter, not a product** — full-text (FTS5), faceted
+      (`GROUP BY`), vector (DiskANN) and hybrid (RRF) are one engine, composed in
+      plain SQL. See [docs/SEARCH.md](SEARCH.md); faceted search verified
+      (`sqlanywhere/tests/faceted_search.rs`).
 - [x] **Collaborative, syncable vector index** — CRDT × vector search × `embed()`:
       a shared semantic index that several devices build offline and merge
       conflict-free, then search over all documents. Verified

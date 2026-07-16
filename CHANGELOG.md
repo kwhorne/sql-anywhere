@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Search, unified as one chapter (not a product).** Full-text (FTS5 inverted
+  index), faceted (`GROUP BY` over the matched set), vector (DiskANN) and hybrid
+  (RRF) search are the same engine composed in plain SQL — no separate search
+  service. New `docs/SEARCH.md` ties them together; faceted search is
+  demonstrated (`sqlanywhere/examples/faceted_search.rs`) and verified
+  (`sqlanywhere/tests/faceted_search.rs`, 3 tests: full-text match, facet counts,
+  drill-down).
 - **Pluggable embeddings (`Embedder` trait).** Bring your own semantic model
   (local ONNX/candle, or a hosted API) and feed it into the same
   `vector32(...)` storage and `vector_top_k` search path as the built-in

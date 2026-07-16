@@ -560,7 +560,7 @@ extern "C" {
 #define SQLITE_VERSION_NUMBER 3047000
 #define SQLITE_SOURCE_ID      "2024-10-21 16:30:22 03a9703e27c44437c39363d0baf82db4ebc94538a0f28411c85dda156f82alt1"
 
-#define SQLANYWHERE_VERSION        "0.4.0"
+#define SQLANYWHERE_VERSION        "0.5.0"
 
 /*
 ** CAPI3REF: Run-Time Library Version Numbers
@@ -140204,7 +140204,7 @@ struct sqlite3_api_routines {
 };
 
 struct sqlanywhere_api_routines {
-  /* SqlAnywhere 0.4.0 */
+  /* SqlAnywhere 0.5.0 */
   void *(*close_hook)(sqlite3*, void(*)(void*,sqlite3*), void *pArg);
 };
 
@@ -140537,7 +140537,7 @@ typedef int (*sqlite3_loadext_entry)(
 #define sqlite3_is_interrupted         sqlite3_api->is_interrupted
 /* Version 3.43.0 and later */
 #define sqlite3_stmt_explain           sqlite3_api->stmt_explain
-/* SqlAnywhere 0.4.0 */
+/* SqlAnywhere 0.5.0 */
 #define sqlanywhere_close_hook              sqlanywhere_api->close_hook
 /* Version 3.44.0 and later */
 #define sqlite3_get_clientdata         sqlite3_api->get_clientdata

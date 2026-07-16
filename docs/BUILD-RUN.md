@@ -58,7 +58,7 @@ docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:latest
 Or pin a specific version:
 
 ```bash
-docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:0.5.1
+docker run -p 8080:8080 -d ghcr.io/kwhorne/sqlanywhere-server:0.5.2
 ```
 
 The image is built for both Intel (amd64) and ARM (arm64), so Docker pulls the

@@ -1,6 +1,6 @@
 [package]
 name = "sqlanywhere-wasi"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 license = "MIT"
 description = "WASI support for SQL Anywhere"

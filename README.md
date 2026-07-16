@@ -343,7 +343,7 @@ cd sqlanywhere-sqlite3 && ./sqlanywhere
 ```
 
 ```console
-SQL Anywhere version 0.5.1 (based on SQLite version 3.43.0)
+SQL Anywhere version 0.5.2 (based on SQLite version 3.43.0)
 Enter ".help" for usage hints.
 Connected to a transient in-memory database.
 sqlanywhere>
@@ -378,7 +378,7 @@ in-repo specs and guides below are the source references:
 ## Changelog & roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) for the release history (current release:
-**0.5.1**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
+**0.5.2**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
 headed next.
 
 ## Contributing

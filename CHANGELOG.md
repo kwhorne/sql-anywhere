@@ -5,7 +5,11 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.2] - 2026-07-16
+
+The substrate half of the Redis-free stack, made provable: the queue, cache and
+pub/sub contracts are now executable, CI-verified specs the Askr runtime builds
+its L2 drivers against.
 
 ### Added
 
@@ -246,6 +250,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.5.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.0
 [0.4.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.4.0

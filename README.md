@@ -359,6 +359,7 @@ Full documentation lives at **<https://elyracode.com/docs/sqlanywhere>**. The
 in-repo specs and guides below are the source references:
 
 - [Search](docs/SEARCH.md) — full-text, faceted, vector & hybrid search: one engine, a chapter not a product
+- [Storage primitives](docs/STORAGE_PRIMITIVES.md) — KV cache with TTL, durable queue & pub/sub, all just tables
 - [Vector search & local RAG guide](docs/VECTOR_SEARCH.md) — why / how / examples
 - [CRDT offline merge (cr-sqlite)](docs/CRDT.md) — conflict-free offline multi-writer sync (experimental)
 - [Collaborative vector index](docs/COLLABORATIVE_VECTOR.md) — CRDT × vector search: a shared semantic index that syncs offline (experimental)

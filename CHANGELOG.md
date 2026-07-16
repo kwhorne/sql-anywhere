@@ -5,6 +5,20 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Storage primitives, as chapters not products.** A KV cache with TTL, a
+  durable work queue, and pub/sub all compose out of plain SQL over the
+  replicated SQLite engine — no Redis/SQS/Kafka alongside. The cache is a table
+  with an expiry column (lazy-filtering view + periodic sweep); the queue is a
+  table with an atomic `UPDATE … RETURNING` claim and a visibility timeout
+  (at-least-once); pub/sub is an append-only topic tailed by cursor, carried
+  across nodes by the replication log. New `docs/STORAGE_PRIMITIVES.md`;
+  demonstrated (`sqlanywhere/examples/storage_primitives.rs`) and verified
+  (`sqlanywhere/tests/storage_primitives.rs`, 3 tests).
+
 ## [0.5.0] - 2026-07-16
 
 Search, made whole and made honest. Full-text, faceted, vector and hybrid search

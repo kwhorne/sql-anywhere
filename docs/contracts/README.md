@@ -12,6 +12,15 @@ documented in `askr/docs/STORAGE_BACKEND.md`.
 | [KV cache](./CACHE_CONTRACT.md) | Laravel cache store, `Cache::lock()`, counters, sessions | elyra-7 |
 | [Pub/sub](./PUBSUB_CONTRACT.md) | Broadcasting / SSE / Pusher-compatible WebSocket | elyra-6 |
 
+## Conformance
+
+These contracts are **executable, CI-verified specs**, not just prose: every
+statement below is exercised against the engine by
+[`sqlanywhere/tests/contract_conformance.rs`](../../sqlanywhere/tests/contract_conformance.rs)
+(`queue_contract_v1`, `cache_contract_v1`, `pubsub_contract_v1`). The Askr
+runtime therefore builds against a proven contract that cannot silently drift
+from what the substrate actually does.
+
 ## Principles
 
 - **Mirror the L1 semantics.** Askr already ships in-process shared-memory

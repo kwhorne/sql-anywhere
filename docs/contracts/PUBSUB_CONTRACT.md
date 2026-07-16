@@ -1,6 +1,6 @@
 # Pub/sub contract (v1)
 
-> **Status:** stable contract, v1. Tracking: elyra-6 (part of the Redis-free
+> **Status:** stable contract, v1. Conformance-tested by `sqlanywhere/tests/contract_conformance.rs::pubsub_contract_v1`. Tracking: elyra-6 (part of the Redis-free
 > epic elyra-2). Substrate half of pub/sub: an append-only topic table tailed
 > past a cursor, carried across nodes by the replication log. Overview:
 > [STORAGE_PRIMITIVES.md](../STORAGE_PRIMITIVES.md).

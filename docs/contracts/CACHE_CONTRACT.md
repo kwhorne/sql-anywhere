@@ -1,6 +1,6 @@
 # KV cache contract (v1)
 
-> **Status:** stable contract, v1. Tracking: elyra-7 (part of the Redis-free
+> **Status:** stable contract, v1. Conformance-tested by `sqlanywhere/tests/contract_conformance.rs::cache_contract_v1`. Tracking: elyra-7 (part of the Redis-free
 > epic elyra-2). Substrate half of the durable cache: the tables and SQL the
 > runtime (Askr) reads/writes. Overview: [STORAGE_PRIMITIVES.md](../STORAGE_PRIMITIVES.md).
 

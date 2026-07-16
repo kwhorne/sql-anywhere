@@ -5,6 +5,20 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Conformance-tested storage contracts (substrate × Askr runtime).** The
+  queue, cache and pub/sub contracts in `docs/contracts/` are now executable,
+  CI-verified specs: `sqlanywhere/tests/contract_conformance.rs` runs the exact
+  contract SQL and asserts the documented semantics (queue at-least-once claim /
+  priority / delay / dead-letter / backlog; cache TTL / atomic increment / SETNX
+  locks / tag invalidation; pub/sub monotonic tail / cursor / retention). This
+  is the substrate half of the Redis-free stack (epic elyra-2); the Askr runtime
+  (`askr/docs/STORAGE_BACKEND.md`) now builds its L2 drivers against a proven
+  contract that cannot silently drift.
+
 ## [0.5.1] - 2026-07-16
 
 Another chapter, not another product: the everyday storage primitives — a KV

@@ -26,6 +26,11 @@ engine wherever possible.
 
 ### AI-native
 
+- [x] **Storage primitives as chapters, not products** — a KV cache with TTL, a
+      durable work queue (atomic `UPDATE … RETURNING` claim, at-least-once), and
+      pub/sub over the replication log, all composed in plain SQL. See
+      [docs/STORAGE_PRIMITIVES.md](STORAGE_PRIMITIVES.md); verified
+      (`sqlanywhere/tests/storage_primitives.rs`).
 - [x] **Search as a chapter, not a product** — full-text (FTS5), faceted
       (`GROUP BY`), vector (DiskANN) and hybrid (RRF) are one engine, composed in
       plain SQL. See [docs/SEARCH.md](SEARCH.md); faceted search verified

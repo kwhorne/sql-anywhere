@@ -1,6 +1,6 @@
 # Durable queue contract (v1)
 
-> **Status:** stable contract, v1. Tracking: elyra-5 (part of the Redis-free
+> **Status:** stable contract, v1. Conformance-tested by `sqlanywhere/tests/contract_conformance.rs::queue_contract_v1`. Tracking: elyra-5 (part of the Redis-free
 > epic elyra-2). This is the substrate half of the durable queue: the tables,
 > indexes and SQL the runtime (Askr) claims against. The conceptual overview is
 > [STORAGE_PRIMITIVES.md](../STORAGE_PRIMITIVES.md); this document is the exact,

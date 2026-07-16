@@ -26,6 +26,10 @@ engine wherever possible.
 
 ### AI-native
 
+- [x] **Conformance-tested storage contracts** — the queue/cache/pub-sub
+      contracts in [docs/contracts/](contracts/README.md) are executable specs
+      verified by `sqlanywhere/tests/contract_conformance.rs`, so the Askr
+      runtime (substrate × runtime, epic elyra-2) builds against a proven seam.
 - [x] **Storage primitives as chapters, not products** — a KV cache with TTL, a
       durable work queue (atomic `UPDATE … RETURNING` claim, at-least-once), and
       pub/sub over the replication log, all composed in plain SQL. See

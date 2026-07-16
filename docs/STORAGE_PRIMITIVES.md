@@ -15,6 +15,12 @@ ships.
 Runnable: [`examples/storage_primitives.rs`](../sqlanywhere/examples/storage_primitives.rs).
 Verified: [`tests/storage_primitives.rs`](../sqlanywhere/tests/storage_primitives.rs).
 
+> **Formal contracts.** This page is the overview. The exact, versioned tables,
+> indexes and SQL that the runtime (Askr) implements against live in
+> [`contracts/`](./contracts/README.md): the [queue](./contracts/QUEUE_CONTRACT.md),
+> [cache](./contracts/CACHE_CONTRACT.md) and [pub/sub](./contracts/PUBSUB_CONTRACT.md)
+> contracts.
+
 ## KV cache with TTL
 
 A cache is a table with an expiry column. Filter expired entries lazily on read

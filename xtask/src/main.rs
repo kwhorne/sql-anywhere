@@ -22,16 +22,35 @@ fn try_main() -> Result<()> {
         Some("test") => run_tests(&arg)?,
         Some("test-encryption") => run_tests_encryption(&arg)?,
         Some("publish") => publish(&arg)?,
-        Some("extension-keygen") => extensions::keygen(if arg.is_empty() {
-            "sqlanywhere-sqlite3/ext"
-        } else {
-            &arg
-        })?,
+        Some("extension-keygen") => extension_keygen()?,
         Some("sign-extensions") => sign_extensions()?,
         Some("verify-extensions") => verify_extensions()?,
         _ => print_help(),
     }
     Ok(())
+}
+
+/// `extension-keygen [--pubkey PATH] [--secret PATH]`
+fn extension_keygen() -> Result<()> {
+    let args: Vec<String> = env::args().skip(2).collect();
+    let mut pubkey = None;
+    let mut secret = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--pubkey" => {
+                i += 1;
+                pubkey = Some(args.get(i).context("--pubkey needs a path")?.clone());
+            }
+            "--secret" => {
+                i += 1;
+                secret = Some(args.get(i).context("--secret needs a path")?.clone());
+            }
+            other => bail!("unexpected argument {other}; see `cargo xtask` for usage"),
+        }
+        i += 1;
+    }
+    extensions::keygen(pubkey.as_deref(), secret.as_deref())
 }
 
 /// `sign-extensions <dir> <release>`
@@ -84,7 +103,10 @@ sim-tests <test name>  runs the sqlanywhere-server simulation test suite
 publish-cratesio       publish sqlanywhere client crates to crates.io
 
 Extension repository:
-extension-keygen [dir]           generate an extension signing key pair (run once, locally)
+extension-keygen                 generate an extension signing key pair (run once, locally).
+                                 Public half -> the repo as the trust root; private half ->
+                                 your config dir, never a working tree.
+                                 [--pubkey PATH] [--secret PATH]
 sign-extensions <dir> <release>  write MANIFEST.json + SHA256SUMS for a release
                                  directory and sign them when EXTENSION_SIGNING_KEY is set
 verify-extensions <dir>          verify MANIFEST.json's signature and every artifact digest

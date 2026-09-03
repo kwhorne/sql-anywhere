@@ -37,8 +37,12 @@ fn try_main() -> Result<()> {
 /// `sign-extensions <dir> <release>`
 fn sign_extensions() -> Result<()> {
     let args: Vec<String> = env::args().skip(2).collect();
-    let dir = args.first().context("usage: sign-extensions <dir> <release>")?;
-    let release = args.get(1).context("usage: sign-extensions <dir> <release>")?;
+    let dir = args
+        .first()
+        .context("usage: sign-extensions <dir> <release>")?;
+    let release = args
+        .get(1)
+        .context("usage: sign-extensions <dir> <release>")?;
     extensions::sign(dir, release)
 }
 
@@ -55,11 +59,7 @@ fn verify_extensions() -> Result<()> {
             "--allow-unsigned" => allow_unsigned = true,
             "--pubkey" => {
                 i += 1;
-                pubkey = Some(
-                    args.get(i)
-                        .context("--pubkey needs a path")?
-                        .clone(),
-                );
+                pubkey = Some(args.get(i).context("--pubkey needs a path")?.clone());
             }
             other if other.starts_with('-') => bail!("unknown flag {other}"),
             other => dir = Some(other.to_string()),
@@ -67,9 +67,7 @@ fn verify_extensions() -> Result<()> {
         i += 1;
     }
 
-    let dir = dir.context(
-        "usage: verify-extensions <dir> [--pubkey PATH] [--allow-unsigned]",
-    )?;
+    let dir = dir.context("usage: verify-extensions <dir> [--pubkey PATH] [--allow-unsigned]")?;
     extensions::verify(&dir, pubkey.as_deref(), allow_unsigned)
 }
 

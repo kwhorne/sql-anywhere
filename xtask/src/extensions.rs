@@ -79,8 +79,8 @@ pub struct Entry {
 
 /// Read `SQLANYWHERE_API_VERSION` out of a `sqlite3ext.h`.
 pub fn api_version_from_header(header: &Path) -> Result<u32> {
-    let text = fs::read_to_string(header)
-        .with_context(|| format!("reading {}", header.display()))?;
+    let text =
+        fs::read_to_string(header).with_context(|| format!("reading {}", header.display()))?;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("#define SQLANYWHERE_API_VERSION") {
             return rest
@@ -89,7 +89,10 @@ pub fn api_version_from_header(header: &Path) -> Result<u32> {
                 .with_context(|| format!("parsing SQLANYWHERE_API_VERSION from {line:?}"));
         }
     }
-    bail!("{} does not define SQLANYWHERE_API_VERSION", header.display())
+    bail!(
+        "{} does not define SQLANYWHERE_API_VERSION",
+        header.display()
+    )
 }
 
 /// First `sqlite3ext.h` among the usual locations, so this works both in a
@@ -159,7 +162,11 @@ fn parse_tagged(text: &str, tag: &str, fields: usize) -> Result<Vec<String>> {
         bail!("expected a line tagged {tag}, found {:?}", parts.first());
     }
     if parts.len() < fields + 1 {
-        bail!("{tag} line has {} fields, expected {}", parts.len() - 1, fields);
+        bail!(
+            "{tag} line has {} fields, expected {}",
+            parts.len() - 1,
+            fields
+        );
     }
     Ok(parts[1..].to_vec())
 }
@@ -240,7 +247,10 @@ pub fn keygen(out_dir: &str) -> Result<()> {
 
     for p in [&pub_path, &sec_path] {
         if p.exists() {
-            bail!("{} already exists; refusing to overwrite a signing key", p.display());
+            bail!(
+                "{} already exists; refusing to overwrite a signing key",
+                p.display()
+            );
         }
     }
 
@@ -370,8 +380,8 @@ pub fn sign(dir: &str, release: &str) -> Result<()> {
 pub fn verify(dir: &str, pubkey: Option<&str>, allow_unsigned: bool) -> Result<()> {
     let dir = Path::new(dir);
     let manifest_path = dir.join(MANIFEST_NAME);
-    let bytes = fs::read(&manifest_path)
-        .with_context(|| format!("reading {}", manifest_path.display()))?;
+    let bytes =
+        fs::read(&manifest_path).with_context(|| format!("reading {}", manifest_path.display()))?;
     let manifest: Manifest =
         serde_json::from_slice(&bytes).with_context(|| format!("parsing {MANIFEST_NAME}"))?;
 
@@ -396,7 +406,9 @@ pub fn verify(dir: &str, pubkey: Option<&str>, allow_unsigned: bool) -> Result<(
                 fields[0]
             );
         }
-        let raw = b64().decode(&fields[1]).context("signature is not base64")?;
+        let raw = b64()
+            .decode(&fields[1])
+            .context("signature is not base64")?;
         let sig_bytes: [u8; 64] = raw
             .try_into()
             .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
@@ -430,7 +442,11 @@ pub fn verify(dir: &str, pubkey: Option<&str>, allow_unsigned: bool) -> Result<(
             );
         }
         if size != e.size {
-            bail!("{} is {size} bytes but the manifest says {}", e.file, e.size);
+            bail!(
+                "{} is {size} bytes but the manifest says {}",
+                e.file,
+                e.size
+            );
         }
         if let Some(host) = host {
             if e.sqlanywhere_api_version > host {
@@ -449,7 +465,10 @@ pub fn verify(dir: &str, pubkey: Option<&str>, allow_unsigned: bool) -> Result<(
         println!("  --  {m} (listed in the manifest, not present here)");
     }
     if checked == 0 {
-        bail!("none of the manifest's artifacts are present in {}", dir.display());
+        bail!(
+            "none of the manifest's artifacts are present in {}",
+            dir.display()
+        );
     }
     println!("{checked} artifact(s) verified");
     Ok(())

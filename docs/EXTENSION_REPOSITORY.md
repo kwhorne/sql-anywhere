@@ -44,6 +44,14 @@ The signature covers the file as written rather than a re-serialisation of the
 structure, so verification never depends on reproducing the same JSON byte for
 byte.
 
+Every extension artifact attached to a release is built by
+[`crsqlite.yml`](../.github/workflows/crsqlite.yml) and described by the
+manifest. That is a property worth preserving: a second workflow uploading its
+own archive on the side would publish something the manifest does not cover, and
+therefore something nobody can verify. If you add a workflow that attaches an
+extension to a release, extend the sign job to cover it rather than publishing
+around it.
+
 `sqlanywhere_api_version` records the value of `SQLANYWHERE_API_VERSION` the
 artifact was built against; see
 [the extension thunk](../sqlanywhere-sqlite3/doc/sqlanywhere_extensions.md#the-extension-thunk-and-its-version).
@@ -129,11 +137,3 @@ it needs answers first:
 
 Until that is decided, the honest description is the one above: the project
 signs what it publishes, and gives you a way to check it.
-
-### Known gap
-
-[`publish-crsqlite.yml`](../.github/workflows/publish-crsqlite.yml) also
-attaches a `crsqlite-linux-x86_64.zip` on `v*` tags, built and uploaded
-independently of the per-target workflow. That archive is not in the manifest,
-so it is published unverified. The two workflows overlap and one of them should
-go; that is a call for whoever owns the release process.

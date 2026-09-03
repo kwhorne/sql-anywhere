@@ -46,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   point it at, and making it enforce signatures is a policy decision with open
   questions listed there.
 
+### Removed
+
+- **`publish-crsqlite.yml`.** It attached its own unsigned
+  `crsqlite-linux-x86_64.zip` on `v*` tags, built independently of the
+  per-target workflow, so that archive sat outside `MANIFEST.json` and nobody
+  could verify it. `crsqlite.yml` already builds the same Linux x86-64 target
+  (plus Apple Silicon and Linux ARM), `docs/CRDT.md` already documents the
+  `crsqlite-<tag>-<target>.tar.gz` naming rather than the zip, and every tag
+  ever pushed matches the `v*.*.*` pattern the remaining workflow triggers on,
+  so nothing is lost. The dead `prebuild-test.*` trigger goes with it.
+
 ### Fixed
 
 - **Null-thunk dereference in the vendored cr-sqlite extension.** `crsqlite.c`

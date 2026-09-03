@@ -12,8 +12,17 @@ use super::make_primary;
 
 #[test]
 fn local_sync_with_writes() {
+    // This test writes about 2 MB of blobs and then has the primary compact them
+    // into snapshots, which is real file I/O happening inside the simulation.
+    // Turmoil's clock advances on its own schedule rather than with that I/O, so
+    // the budget below is really a bound on how slow the disk is allowed to be,
+    // not on how many protocol steps the test may take. At 120s it was the
+    // tightest budget in the suite, and on slower storage the clock ran out
+    // before the writes finished: reproduced at a 12/12 failure rate on
+    // overlayfs, against 12/12 passes on tmpfs, with the same binary. 1000s is
+    // what the rest of these simulations use.
     let mut sim = Builder::new()
-        .simulation_duration(Duration::from_secs(120))
+        .simulation_duration(Duration::from_secs(1000))
         .build();
 
     let tmp_embedded = tempdir().unwrap();

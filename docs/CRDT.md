@@ -31,6 +31,15 @@ state — including deterministic resolution when two nodes edit the same row.
    Intel/ARM), or build it yourself (needs a pinned nightly + `build-std`,
    wrapped in a script):
 
+   > **Take the archive whose tag matches your library.** A loadable extension
+   > is compiled against SQL Anywhere's extension ABI, and that ABI's layout
+   > changed in 0.6.0: an archive built for 0.5.2 or earlier will crash a 0.6.0
+   > library outright. From 0.6.0 the release manifest records the interface
+   > version each archive was built against and
+   > `cargo xtask verify-extensions` refuses a mismatch before you ever load
+   > the file, alongside checking the signature. See
+   > [the extension repository](EXTENSION_REPOSITORY.md).
+
    ```sh
    scripts/build-crsqlite.sh
    # -> sqlanywhere-sqlite3/ext/crr/dist/crsqlite.{dylib,so}

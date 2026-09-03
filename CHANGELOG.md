@@ -5,6 +5,22 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`extension-keygen` no longer writes the private key into the repository.**
+  It defaulted the whole key pair to `sqlanywhere-sqlite3/ext/`, so the trust
+  root's private half landed in a working tree, where `.gitignore` is the only
+  thing standing between it and a `git add -f`, a stray archive, or an `rsync`.
+  The public half still goes to the repo, since CI reads it from a fresh
+  checkout; the private half now goes to `$XDG_CONFIG_HOME/sqlanywhere/`
+  (falling back to `~/.config/sqlanywhere/`), in a directory created mode 700
+  with the key mode 600. Writing it inside a working tree is refused outright,
+  including via a relative path that climbs back in, rather than merely warned
+  about. Both paths are overridable with `--pubkey` and `--secret`, and the
+  command now prints the exact `gh secret set` line to run next.
+
 ## [0.6.0] - 2026-09-03
 
 Extensions you can trust. The loadable-extension ABI can now describe itself, so

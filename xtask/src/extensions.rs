@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use base64::Engine as _;
@@ -40,6 +41,69 @@ const SUMS_NAME: &str = "SHA256SUMS";
 /// Committed trust root. The private half never leaves the maintainer's
 /// keychain and the CI secret.
 pub const DEFAULT_PUBKEY_PATH: &str = "sqlanywhere-sqlite3/ext/SIGNING_KEY.pub";
+
+const SECRET_FILE: &str = "SIGNING_KEY.secret";
+
+/// Where the private half goes by default: the user's config directory, never
+/// a working tree. A key inside a checkout is one `git add -f`, one stray
+/// archive, or one `rsync` away from being published, and the whole point of
+/// the trust root is that only one copy of it exists.
+fn default_secret_path() -> Result<PathBuf> {
+    if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
+        if !x.trim().is_empty() {
+            return Ok(PathBuf::from(x).join("sqlanywhere").join(SECRET_FILE));
+        }
+    }
+    let home = std::env::var("HOME")
+        .context("neither XDG_CONFIG_HOME nor HOME is set; pass --secret PATH")?;
+    Ok(PathBuf::from(home)
+        .join(".config")
+        .join("sqlanywhere")
+        .join(SECRET_FILE))
+}
+
+/// The working tree we are standing in, if any.
+fn repo_root() -> Option<PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let path = PathBuf::from(text.trim());
+    (!path.as_os_str().is_empty()).then_some(path)
+}
+
+/// Absolute form of a path that does not exist yet: canonicalise the deepest
+/// ancestor that does exist, then re-attach the rest. Without this, a symlinked
+/// home directory would defeat the containment check below.
+fn absolutise(path: &Path) -> PathBuf {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    let mut cur = abs.clone();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if cur.exists() {
+            let mut base = cur.canonicalize().unwrap_or(cur);
+            while let Some(t) = tail.pop() {
+                base.push(t);
+            }
+            return base;
+        }
+        match (cur.file_name().map(|n| n.to_os_string()), cur.parent()) {
+            (Some(name), Some(parent)) => {
+                tail.push(name);
+                cur = parent.to_path_buf();
+            }
+            _ => return abs,
+        }
+    }
+}
 
 fn b64() -> base64::engine::general_purpose::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
@@ -230,20 +294,36 @@ fn signing_key_from_env(var: &str) -> Result<Option<SigningKey>> {
 /// Generate a key pair. The maintainer runs this once, locally: the public half
 /// is committed as the trust root, the private half becomes a CI secret. It is
 /// deliberately not something CI can do for itself.
-pub fn keygen(out_dir: &str) -> Result<()> {
+///
+/// The two halves go to different places on purpose. The public key belongs in
+/// the repository; the private key belongs outside every working tree, and this
+/// refuses to write it into one.
+pub fn keygen(pubkey: Option<&str>, secret: Option<&str>) -> Result<()> {
     use rand::RngCore;
 
-    let dir = Path::new(out_dir);
-    fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let pub_path = PathBuf::from(pubkey.unwrap_or(DEFAULT_PUBKEY_PATH));
+    let sec_path = match secret {
+        Some(s) => PathBuf::from(s),
+        None => default_secret_path()?,
+    };
 
-    let mut seed = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut seed);
-    let sk = SigningKey::from_bytes(&seed);
-    let vk = sk.verifying_key();
-    let id = key_id(&vk);
-
-    let pub_path = dir.join("SIGNING_KEY.pub");
-    let sec_path = dir.join("SIGNING_KEY.secret");
+    // A signing key inside a checkout is one `git add -f` or one stray archive
+    // away from being published, so refuse rather than rely on .gitignore.
+    if let Some(root) = repo_root() {
+        let root = root.canonicalize().unwrap_or(root);
+        if absolutise(&sec_path).starts_with(&root) {
+            bail!(
+                "refusing to write the private key inside the working tree at {}.\n\
+                 {} is in the repository, where a signing key does not belong.\n\
+                 Leave --secret unset to use {}, or pass a path outside the repo.",
+                root.display(),
+                sec_path.display(),
+                default_secret_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "your config directory".into())
+            );
+        }
+    }
 
     for p in [&pub_path, &sec_path] {
         if p.exists() {
@@ -251,6 +331,27 @@ pub fn keygen(out_dir: &str) -> Result<()> {
                 "{} already exists; refusing to overwrite a signing key",
                 p.display()
             );
+        }
+    }
+
+    let mut seed = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut seed);
+    let sk = SigningKey::from_bytes(&seed);
+    let vk = sk.verifying_key();
+    let id = key_id(&vk);
+
+    for (path, private) in [(&pub_path, false), (&sec_path, true)] {
+        if let Some(dir) = path.parent() {
+            if !dir.as_os_str().is_empty() {
+                fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+                // The directory holding a private key should not be readable by
+                // other accounts either.
+                #[cfg(unix)]
+                if private {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+                }
+            }
         }
     }
 
@@ -262,7 +363,9 @@ pub fn keygen(out_dir: &str) -> Result<()> {
              {PUBKEY_TAG} {} {id}\n",
             b64().encode(vk.as_bytes())
         ),
-    )?;
+    )
+    .with_context(|| format!("writing {}", pub_path.display()))?;
+
     fs::write(
         &sec_path,
         format!(
@@ -271,8 +374,9 @@ pub fn keygen(out_dir: &str) -> Result<()> {
              {SECKEY_TAG} {}\n",
             b64().encode(seed)
         ),
-    )?;
-    // Best effort: keep the secret out of other users' reach.
+    )
+    .with_context(|| format!("writing {}", sec_path.display()))?;
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -281,12 +385,17 @@ pub fn keygen(out_dir: &str) -> Result<()> {
 
     println!("key id:      {id}");
     println!("public key:  {}", pub_path.display());
-    println!("secret key:  {}  (chmod 600)", sec_path.display());
+    println!("secret key:  {}  (mode 600)", sec_path.display());
     println!();
     println!("Next steps:");
     println!("  1. Commit {} as the trust root.", pub_path.display());
-    println!("  2. Store the secret-key line as the CI secret EXTENSION_SIGNING_KEY.");
-    println!("  3. Keep an offline copy of the secret; losing it means rotating the key.");
+    println!("     CI reads it from a fresh checkout, so an uncommitted key has no effect.");
+    println!("  2. Store the secret as the CI secret EXTENSION_SIGNING_KEY:");
+    println!(
+        "       gh secret set EXTENSION_SIGNING_KEY < {}",
+        sec_path.display()
+    );
+    println!("  3. Keep an offline copy. Losing the secret means rotating the key.");
     Ok(())
 }
 

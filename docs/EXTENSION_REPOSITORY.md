@@ -96,14 +96,33 @@ trust root:
 
 ```console
 $ cargo xtask extension-keygen
-key id:      ece35bde
+key id:      28d3cc13
 public key:  sqlanywhere-sqlite3/ext/SIGNING_KEY.pub
-secret key:  sqlanywhere-sqlite3/ext/SIGNING_KEY.secret  (chmod 600)
+secret key:  /home/you/.config/sqlanywhere/SIGNING_KEY.secret  (mode 600)
 ```
 
-Then commit `SIGNING_KEY.pub`, store the `sqlanywhere-ext-seckey-v1 …` line as
-the `EXTENSION_SIGNING_KEY` repository secret, keep an offline copy, and **do
-not commit the secret file**.
+The two halves land in different places on purpose. The public key belongs in
+the repository, because CI reads the trust root from a fresh checkout and an
+uncommitted key has no effect. The private key belongs outside every working
+tree: inside one it is a single `git add -f`, stray archive, or `rsync` away
+from being published, and `.gitignore` is a convention, not a guard. So
+`extension-keygen` writes it to `$XDG_CONFIG_HOME/sqlanywhere/` (falling back to
+`~/.config/sqlanywhere/`) and **refuses outright** to write it into a working
+tree, even when you point `--secret` at one. Both paths can be overridden:
+
+```console
+$ cargo xtask extension-keygen --pubkey path/to/KEY.pub --secret ~/keys/KEY.secret
+```
+
+Then commit `SIGNING_KEY.pub`, store the secret as the repository secret, and
+keep an offline copy:
+
+```console
+$ gh secret set EXTENSION_SIGNING_KEY < ~/.config/sqlanywhere/SIGNING_KEY.secret
+```
+
+The whole file is accepted, comment lines and all, so there is no need to cut
+the key out of it by hand.
 
 Every key carries a short id, the first four bytes of the SHA-256 of the public
 key, and both the manifest and the signature name the key that signed. Rotation

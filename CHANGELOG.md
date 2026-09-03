@@ -5,6 +5,54 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Versioned loadable-extension ABI.** `sqlanywhere_api_routines` — the SQL
+  Anywhere thunk handed to extension entry points alongside the stock
+  `sqlite3_api_routines` — now carries an `iVersion` as its first member, and
+  `sqlite3ext.h` gained `SQLANYWHERE_API_VERSION` plus a
+  `SQLANYWHERE_API_ATLEAST(V)` guard. An extension is compiled against one copy
+  of the header and then loaded by whatever host library the user happens to
+  have, so without a version field an extension built against a newer header
+  would read past the end of an older host's structure, with no way to detect
+  it. Doing this while the structure still holds a single member (`close_hook`)
+  is free; once a second member is appended it no longer can be. Documented in
+  [`sqlanywhere_extensions.md`](sqlanywhere-sqlite3/doc/sqlanywhere_extensions.md)
+  and verified by
+  `sqlanywhere-sqlite3/test/rust_suite/src/extension_abi.rs`, which compiles a
+  real out-of-tree loadable extension and checks that the host's advertised
+  version agrees with its own header and that a probe for a not-yet-implemented
+  version is declined rather than followed.
+
+- **Signed extension repository.** A prebuilt extension is code you download
+  and then run with the full privileges of your database process, but installing
+  one meant fetching a shared object from a release page and hoping. Releases
+  now carry `SHA256SUMS` for integrity, a `MANIFEST.json` describing every
+  artifact (digest, size, and the extension interface version it was compiled
+  against), and a detached Ed25519 signature over that manifest's exact bytes.
+  Three new tasks drive it: `cargo xtask extension-keygen` (a one-time,
+  deliberately manual step, since CI must not mint its own trust root),
+  `sign-extensions`, and `verify-extensions`, which checks the signature, then
+  each digest, then that the artifact's interface version is one the host
+  implements. Keys carry short ids so rotation does not need a flag day, and an
+  unsigned release cannot pass as a signed one: `verify-extensions` fails unless
+  told `--allow-unsigned`. Wired into
+  [`crsqlite.yml`](.github/workflows/crsqlite.yml) on every build, not just
+  tags, so the tooling stays covered. New
+  [`docs/EXTENSION_REPOSITORY.md`](docs/EXTENSION_REPOSITORY.md), which also
+  records what is deliberately *not* done: the loader still opens any file you
+  point it at, and making it enforce signatures is a policy decision with open
+  questions listed there.
+
+### Fixed
+
+- **Null-thunk dereference in the vendored cr-sqlite extension.** `crsqlite.c`
+  called `sqlanywhere_close_hook` unconditionally, but a host built with
+  `SQLITE_OMIT_LOAD_EXTENSION` passes no SQL Anywhere thunk at all. The call is
+  now guarded by `SQLANYWHERE_API_ATLEAST(1)`.
+
 ## [0.5.2] - 2026-07-16
 
 The substrate half of the Redis-free stack, made provable: the queue, cache and

@@ -103,3 +103,66 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: ${{ steps.package.outputs.asset }}
           fail_on_unmatched_files: true
+
+  # A user of a prebuilt extension downloads a shared object and hands it to
+  # .load, where it runs with the full privileges of the host process. So the
+  # release carries a signed manifest of what was built: SHA256SUMS for
+  # integrity, an Ed25519 signature over the manifest for authenticity, and the
+  # extension interface version each artifact was compiled against.
+  #
+  # This job runs on every build, not just tags, so the tooling itself stays
+  # covered. Signing needs the EXTENSION_SIGNING_KEY secret; without it the
+  # manifest is still produced but marked unsigned, and the verify step is told
+  # to accept that.
+  sign:
+    name: Sign extension manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Collect the built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: crsqlite-*
+          merge-multiple: true
+          path: dist
+
+      - name: Write and sign the manifest
+        env:
+          EXTENSION_SIGNING_KEY: ${{ secrets.EXTENSION_SIGNING_KEY }}
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="${tag//\//-}"
+          cargo run -q -p xtask -- sign-extensions dist "$tag"
+
+      - name: Verify what we are about to publish
+        run: |
+          if [ -f sqlanywhere-sqlite3/ext/SIGNING_KEY.pub ] && [ -f dist/MANIFEST.json.sig ]; then
+            cargo run -q -p xtask -- verify-extensions dist
+          else
+            echo "::warning::No extension trust root or signature; verifying digests only."
+            cargo run -q -p xtask -- verify-extensions dist --allow-unsigned
+          fi
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crsqlite-manifest
+          path: |
+            dist/MANIFEST.json
+            dist/MANIFEST.json.sig
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Attach manifest to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist/MANIFEST.json
+            dist/MANIFEST.json.sig
+            dist/SHA256SUMS
+          fail_on_unmatched_files: false

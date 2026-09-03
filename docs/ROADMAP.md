@@ -84,6 +84,20 @@ engine wherever possible.
       replication status. *(medium effort)*
 
 ### Operations
+- [x] **Signed extension repository** — releases carry `SHA256SUMS`, a
+      `MANIFEST.json` (per-artifact digest, size and extension interface
+      version) and a detached Ed25519 signature over it, driven by
+      `cargo xtask {extension-keygen,sign-extensions,verify-extensions}`.
+      Replaces download-a-`.so`-and-hope for the prebuilt cr-sqlite extension.
+      See [docs/EXTENSION_REPOSITORY.md](EXTENSION_REPOSITORY.md). Next: decide
+      whether the loader itself should enforce signatures (needs a key
+      distribution and local-development story; the open questions are written
+      down in that doc).
+- [x] **Versioned extension ABI** — `sqlanywhere_api_routines` carries an
+      `iVersion` first member with `SQLANYWHERE_API_VERSION` and a
+      `SQLANYWHERE_API_ATLEAST(V)` guard, so an extension built against a newer
+      header cannot read past an older host's thunk. Verified
+      (`sqlanywhere-sqlite3/test/rust_suite/src/extension_abi.rs`).
 - [ ] **OpenTelemetry / Prometheus dashboards** — ready-made metrics + tracing
       export for `sqld`. *(low–medium effort)*
 - [ ] **Bottomless point-in-time recovery UX** — friendlier restore workflow on

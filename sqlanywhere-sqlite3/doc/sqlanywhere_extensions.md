@@ -2,6 +2,101 @@
 
 This document describes extensions to the library provided by SQL Anywhere, not available in upstream SQLite at the time of writing.
 
+## The extension thunk and its version
+
+SQL Anywhere's additions to the loadable-extension interface are delivered
+through a second thunk, `sqlanywhere_api_routines`, passed to an extension
+entry point as a **fourth argument** alongside the stock
+`sqlite3_api_routines`:
+
+```c
+int sqlite3_myext_init(
+  sqlite3 *db,
+  char **pzErrMsg,
+  const sqlite3_api_routines *pApi,
+  const sqlanywhere_api_routines *pSqlanywhereApi   /* SQL Anywhere */
+);
+```
+
+Initialise both thunks, then reach the members through the macros in
+`sqlite3ext.h`:
+
+```c
+#include "sqlite3ext.h"
+SQLITE_EXTENSION_INIT1
+SQLANYWHERE_EXTENSION_INIT1
+
+int sqlite3_myext_init(sqlite3 *db, char **pzErrMsg,
+                       const sqlite3_api_routines *pApi,
+                       const sqlanywhere_api_routines *pSqlanywhereApi){
+  SQLITE_EXTENSION_INIT2(pApi);
+  SQLANYWHERE_EXTENSION_INIT2(pSqlanywhereApi);
+
+  if( SQLANYWHERE_API_ATLEAST(1) ){
+    sqlanywhere_close_hook(db, myCloseHook, pMyData);
+  }
+  return SQLITE_OK;
+}
+```
+
+### Why the version check
+
+An extension is a shared library: it is compiled against one copy of
+`sqlite3ext.h` and then loaded by whatever host library the user happens to
+have installed, which may be older. So the host advertises what it implements
+in `iVersion`, the first member of the structure:
+
+```c
+struct sqlanywhere_api_routines {
+  int iVersion;             /* Interface version number; 1 or more */
+  /* iVersion 1 and later */
+  void *(*close_hook)(sqlite3*, void(*)(void*,sqlite3*), void *pArg);
+};
+```
+
+`SQLANYWHERE_API_VERSION` is the version described by the header you compile
+against. `SQLANYWHERE_API_ATLEAST(V)` is true when the *host* provides at least
+version `V`, and it also covers the case where the host supplies no thunk at
+all: a library built with `SQLITE_OMIT_LOAD_EXTENSION` passes a NULL pointer.
+Guard every member introduced after version 1, or an extension built against a
+newer header will read past the end of an older host's structure.
+
+Interface versions:
+
+| `iVersion` | Members | Since |
+|-----------|---------|-------|
+| 1 | `close_hook` | 0.5.2 |
+
+### Adding a member
+
+Members are only ever **appended**, never reordered, removed, or changed in
+signature, and `iVersion` stays first. Appending a member means, in one change:
+add it to `sqlanywhere_api_routines` under a `/* iVersion N and later */`
+comment, add its `#define` redirect, increment `SQLANYWHERE_API_VERSION`, add
+the initialiser to `sqlanywhereApis` in `src/loadext.c`, and add a row to the
+table above. `test/rust_suite/src/extension_abi.rs` compiles a real loadable
+extension and checks that the host's `iVersion` agrees with the header.
+
+### Staying portable to stock SQLite
+
+An extension that should also load into upstream SQLite guards the extra
+parameter, as the vendored cr-sqlite does in
+`ext/crr/src/crsqlite.c`:
+
+```c
+int sqlite3_myext_init(sqlite3 *db, char **pzErrMsg,
+                       const sqlite3_api_routines *pApi
+#ifdef SQLANYWHERE
+                       , const sqlanywhere_api_routines *pSqlanywhereApi
+#endif
+){
+```
+
+Passing a fourth argument to a three-parameter entry point is harmless on the
+platform ABIs SQL Anywhere supports, so a stock SQLite extension still loads
+into SQL Anywhere unchanged. The reverse is not true: an extension that calls
+`sqlanywhere_*` members needs a SQL Anywhere host.
+
 ## sqlanywhere\_close\_hook
 
 It was [reported](https://github.com/sqlanywhere/sqlanywhere/issues/62) that extensions have issues cleaning up after themselves,
@@ -18,6 +113,9 @@ void *sqlanywhere_close_hook(
   void *pArg                /* First callback argument */
 );
 ```
+
+Available since interface version 1; see
+[the extension thunk](#the-extension-thunk-and-its-version).
 
 ## Altering columns
 

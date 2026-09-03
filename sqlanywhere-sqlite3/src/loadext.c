@@ -521,6 +521,8 @@ static const sqlite3_api_routines sqlite3Apis = {
 };
 
 static const sqlanywhere_api_routines sqlanywhereApis = {
+    SQLANYWHERE_API_VERSION,
+    /* iVersion 1 and later */
     sqlanywhere_close_hook,
 };
 /* True if x is the directory separator character
@@ -666,6 +668,11 @@ static int sqlite3LoadExtension(
     return SQLITE_ERROR;
   }
   sqlite3_free(zAltEntry);
+  /* An extension discovers what this host provides by reading iVersion, so it
+  ** has to sit at offset 0 whichever sqlite3ext.h the extension was compiled
+  ** against, and it has to describe this build. */
+  assert( offsetof(sqlanywhere_api_routines, iVersion)==0 );
+  assert( sqlanywhereApis.iVersion==SQLANYWHERE_API_VERSION );
   rc = xInit(db, &zErrmsg, &sqlite3Apis, &sqlanywhereApis);
   if( rc ){
     if( rc==SQLITE_OK_LOAD_PERMANENTLY ) return SQLITE_OK;

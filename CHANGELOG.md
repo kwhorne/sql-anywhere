@@ -5,7 +5,33 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-03
+
+Extensions you can trust. The loadable-extension ABI can now describe itself, so
+a version mismatch is something an extension detects rather than crashes on, and
+every extension this project publishes ships with a signed manifest saying
+exactly what it is.
+
+**This release changes the extension ABI.** Prebuilt extensions from 0.5.2 and
+earlier must be re-downloaded; see below.
+
+### Breaking
+
+- **The extension thunk's layout changed: extensions built against 0.5.2 or
+  earlier must be rebuilt or re-downloaded.** `iVersion` is now the first member
+  of `sqlanywhere_api_routines`, which moves `close_hook`. An extension compiled
+  against an older `sqlite3ext.h` reads offset 0 expecting a function pointer,
+  finds the interface-version integer instead, and calls it; loading one into
+  0.6.0 kills the process (verified: SIGBUS). This affects the prebuilt
+  `crsqlite-*` archives attached to every release from `v0.3.1` through
+  `v0.5.2`. Use the `v0.6.0` builds instead.
+
+  Nothing else moves: the SQLite C API is unchanged and database files stay
+  byte-compatible with stock SQLite, so only loadable extensions are affected.
+  This is also the only time the layout can move. From 0.6.0 on, `iVersion` lets
+  an extension detect a mismatch instead of crashing on it, and the release
+  manifest records the interface version each artifact was built against, so a
+  bad pairing is caught before the file is ever loaded.
 
 ### Added
 
@@ -17,8 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the header and then loaded by whatever host library the user happens to
   have, so without a version field an extension built against a newer header
   would read past the end of an older host's structure, with no way to detect
-  it. Doing this while the structure still holds a single member (`close_hook`)
-  is free; once a second member is appended it no longer can be. Documented in
+  it. The structure holds one member today (`close_hook`), so this is the last
+  moment the field can be added at all; the cost of adding it now is the
+  one-time layout change described under **Breaking** below. Documented in
   [`sqlanywhere_extensions.md`](sqlanywhere-sqlite3/doc/sqlanywhere_extensions.md)
   and verified by
   `sqlanywhere-sqlite3/test/rust_suite/src/extension_abi.rs`, which compiles a
@@ -58,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so nothing is lost. The dead `prebuild-test.*` trigger goes with it.
 
 ### Fixed
+
+- **Stale SQLite version in the README.** The sample shell transcript claimed
+  the fork is based on SQLite 3.43.0; the bundled amalgamation has been 3.47.0
+  for some time. Corrected while bumping the version marker on the same line.
 
 - **Null-thunk dereference in the vendored cr-sqlite extension.** `crsqlite.c`
   called `sqlanywhere_close_hook` unconditionally, but a host built with
@@ -309,6 +340,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.6.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.0
 [0.5.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.0

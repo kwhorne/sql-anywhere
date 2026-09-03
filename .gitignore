@@ -10,6 +10,11 @@ sqlanywhere-sqlite3/**.o.tmp
 # will be copied from bundled/src
 /sqlanywhere-ffi/bundled/SQLite3MultipleCiphers/src/sqlite3.c
 
+# Extension signing: the public half is the committed trust root, the private
+# half must never be. See docs/EXTENSION_REPOSITORY.md.
+SIGNING_KEY.secret
+*.secret
+
 /bindings/c/generated
 /bindings/c/**.xcframework
 /bindings/**/.DS_Store

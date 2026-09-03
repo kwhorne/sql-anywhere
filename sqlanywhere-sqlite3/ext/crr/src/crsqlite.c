@@ -93,7 +93,12 @@ __declspec(dllexport)
 
   if (rc == SQLITE_OK) {
 #ifdef SQLANYWHERE
-    sqlanywhere_close_hook(db, closeHook, pExtData);
+    // close_hook has been present since interface version 1, but a host built
+    // with SQLITE_OMIT_LOAD_EXTENSION hands us no thunk at all, so probe before
+    // dereferencing it.
+    if (SQLANYWHERE_API_ATLEAST(1)) {
+      sqlanywhere_close_hook(db, closeHook, pExtData);
+    }
 #endif
     // TODO: get the prior callback so we can call it rather than replace
     // it?

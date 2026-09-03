@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod alter_column;
+mod extension_abi;
 mod random_rowid;
 mod virtual_wal;
 #[cfg(all(test, feature = "extensions"))]

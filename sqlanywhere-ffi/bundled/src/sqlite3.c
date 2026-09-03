@@ -140203,10 +140203,42 @@ struct sqlite3_api_routines {
   int (*set_clientdata)(sqlite3*, const char*, void*, void(*)(void*));
 };
 
+/*
+** CAPI3REF: SQL Anywhere Loadable Extension Thunk
+**
+** This structure carries the SQL Anywhere additions to the loadable-extension
+** interface.  A pointer to it is passed to an extension entry point as a
+** fourth argument, alongside the stock [sqlite3_api_routines] thunk.
+**
+** The iVersion field must stay the first member, and members are only ever
+** appended -- never reordered, removed, or changed in signature.  The host
+** library sets iVersion to the highest interface version it implements, and
+** that is the only way an extension can learn what the host actually provides:
+** a shared library built against a newer sqlite3ext.h may well be loaded by an
+** older host library, in which case the trailing members do not exist.  Guard
+** every member added after interface version 1 with [SQLANYWHERE_API_ATLEAST].
+** Note also that the host passes no thunk at all (a NULL pointer) in builds
+** configured with SQLITE_OMIT_LOAD_EXTENSION.
+**
+** Interface versions:
+** <ul>
+** <li> 1: close_hook &mdash; since SQL Anywhere 0.5.2
+** </ul>
+*/
 struct sqlanywhere_api_routines {
-  /* SqlAnywhere 0.5.2 */
+  int iVersion;             /* Interface version number; 1 or more */
+  /* iVersion 1 and later */
   void *(*close_hook)(sqlite3*, void(*)(void*,sqlite3*), void *pArg);
 };
+
+/*
+** CAPI3REF: SQL Anywhere Loadable Extension Interface Version
+**
+** The [sqlanywhere_api_routines] interface version described by this copy of
+** sqlite3ext.h.  Increment it in the same change that appends a member to that
+** structure, and add the member to the interface-version list above.
+*/
+#define SQLANYWHERE_API_VERSION 1
 
 /*
 ** This is the function signature used for all extension entry points.  It
@@ -140537,7 +140569,7 @@ typedef int (*sqlite3_loadext_entry)(
 #define sqlite3_is_interrupted         sqlite3_api->is_interrupted
 /* Version 3.43.0 and later */
 #define sqlite3_stmt_explain           sqlite3_api->stmt_explain
-/* SqlAnywhere 0.5.2 */
+/* SqlAnywhere iVersion 1 and later */
 #define sqlanywhere_close_hook              sqlanywhere_api->close_hook
 /* Version 3.44.0 and later */
 #define sqlite3_get_clientdata         sqlite3_api->get_clientdata
@@ -140556,6 +140588,11 @@ typedef int (*sqlite3_loadext_entry)(
 # define SQLANYWHERE_EXTENSION_INIT2(v)  sqlanywhere_api=v;
 # define SQLANYWHERE_EXTENSION_INIT3     \
     extern const sqlanywhere_api_routines *sqlanywhere_api;
+  /* True when the host library supplied a thunk implementing at least
+  ** interface version V.  This also covers the SQLITE_OMIT_LOAD_EXTENSION
+  ** case, in which the host supplies no thunk at all. */
+# define SQLANYWHERE_API_ATLEAST(V) \
+    (sqlanywhere_api!=0 && sqlanywhere_api->iVersion>=(V))
 
 #else
   /* This case when the file is being statically linked into the
@@ -140567,6 +140604,9 @@ typedef int (*sqlite3_loadext_entry)(
 # define SQLANYWHERE_EXTENSION_INIT1     /*no-op*/
 # define SQLANYWHERE_EXTENSION_INIT2(v)  (void)v; /* unused parameter */
 # define SQLANYWHERE_EXTENSION_INIT3     /*no-op*/
+  /* Statically linked, so the header and the library are one build and the
+  ** version check collapses to a compile-time constant. */
+# define SQLANYWHERE_API_ATLEAST(V)      (SQLANYWHERE_API_VERSION>=(V))
 
 #endif
 
@@ -141078,6 +141118,8 @@ static const sqlite3_api_routines sqlite3Apis = {
 };
 
 static const sqlanywhere_api_routines sqlanywhereApis = {
+    SQLANYWHERE_API_VERSION,
+    /* iVersion 1 and later */
     sqlanywhere_close_hook,
 };
 /* True if x is the directory separator character
@@ -141223,6 +141265,11 @@ static int sqlite3LoadExtension(
     return SQLITE_ERROR;
   }
   sqlite3_free(zAltEntry);
+  /* An extension discovers what this host provides by reading iVersion, so it
+  ** has to sit at offset 0 whichever sqlite3ext.h the extension was compiled
+  ** against, and it has to describe this build. */
+  assert( offsetof(sqlanywhere_api_routines, iVersion)==0 );
+  assert( sqlanywhereApis.iVersion==SQLANYWHERE_API_VERSION );
   rc = xInit(db, &zErrmsg, &sqlite3Apis, &sqlanywhereApis);
   if( rc ){
     if( rc==SQLITE_OK_LOAD_PERMANENTLY ) return SQLITE_OK;

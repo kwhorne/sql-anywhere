@@ -1,6 +1,8 @@
 use std::{env, process::Command};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+
+mod extensions;
 
 fn main() {
     if let Err(e) = try_main() {
@@ -20,9 +22,55 @@ fn try_main() -> Result<()> {
         Some("test") => run_tests(&arg)?,
         Some("test-encryption") => run_tests_encryption(&arg)?,
         Some("publish") => publish(&arg)?,
+        Some("extension-keygen") => extensions::keygen(if arg.is_empty() {
+            "sqlanywhere-sqlite3/ext"
+        } else {
+            &arg
+        })?,
+        Some("sign-extensions") => sign_extensions()?,
+        Some("verify-extensions") => verify_extensions()?,
         _ => print_help(),
     }
     Ok(())
+}
+
+/// `sign-extensions <dir> <release>`
+fn sign_extensions() -> Result<()> {
+    let args: Vec<String> = env::args().skip(2).collect();
+    let dir = args.first().context("usage: sign-extensions <dir> <release>")?;
+    let release = args.get(1).context("usage: sign-extensions <dir> <release>")?;
+    extensions::sign(dir, release)
+}
+
+/// `verify-extensions <dir> [--pubkey PATH] [--allow-unsigned]`
+fn verify_extensions() -> Result<()> {
+    let args: Vec<String> = env::args().skip(2).collect();
+    let mut dir = None;
+    let mut pubkey = None;
+    let mut allow_unsigned = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--allow-unsigned" => allow_unsigned = true,
+            "--pubkey" => {
+                i += 1;
+                pubkey = Some(
+                    args.get(i)
+                        .context("--pubkey needs a path")?
+                        .clone(),
+                );
+            }
+            other if other.starts_with('-') => bail!("unknown flag {other}"),
+            other => dir = Some(other.to_string()),
+        }
+        i += 1;
+    }
+
+    let dir = dir.context(
+        "usage: verify-extensions <dir> [--pubkey PATH] [--allow-unsigned]",
+    )?;
+    extensions::verify(&dir, pubkey.as_deref(), allow_unsigned)
 }
 
 fn print_help() {
@@ -36,6 +84,13 @@ test                   runs the entire sqlanywhere test suite using nextest
 test-encryption        runs encryption tests for embedded replicas
 sim-tests <test name>  runs the sqlanywhere-server simulation test suite
 publish-cratesio       publish sqlanywhere client crates to crates.io
+
+Extension repository:
+extension-keygen [dir]           generate an extension signing key pair (run once, locally)
+sign-extensions <dir> <release>  write MANIFEST.json + SHA256SUMS for a release
+                                 directory and sign them when EXTENSION_SIGNING_KEY is set
+verify-extensions <dir>          verify MANIFEST.json's signature and every artifact digest
+                                 [--pubkey PATH] [--allow-unsigned]
 "
     )
 }

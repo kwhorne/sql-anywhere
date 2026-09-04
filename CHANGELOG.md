@@ -16,9 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the queue's claim is a subtle atomic `UPDATE` that a consumer has to reproduce
   exactly. The tests now read the SQL out of `docs/contracts/*.md` and execute
   it verbatim, so editing a contract either proves the new semantics or turns
-  the test red.
+  the test red. Coverage is partial and now visible: of the 18 operations the
+  contracts publish with SQL, 7 are executed from the document, and
+  `every_contract_operation_is_covered_or_listed` pins the rest as known gaps so
+  the list cannot grow quietly.
 
 ### Fixed
+
+- **Two more contract guarantees were documented but unverified.** Mutating the
+  cache contract found them, the same way mutating the queue contract found the
+  delay gap. The increment says it "treats a missing/expired entry as `0`", but
+  removing that reset left `cache_contract_v1` green, because nothing ever
+  incremented an expired counter. The upsert carries
+  `expires_at = excluded.expires_at` so an overwrite moves the expiry, but
+  removing that left the test green too, because nothing ever overwrote a key
+  with a different TTL. Both are asserted now.
 
 - **The queue contract's delay semantics were not actually verified.** Making
   the document the source made it possible to check the tests for teeth by

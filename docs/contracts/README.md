@@ -23,10 +23,21 @@ apart. Edit a statement here and the test either proves the new semantics or
 goes red.
 
 That matters most for the queue's claim, which is a subtle atomic `UPDATE` that
-every consumer has to reproduce exactly. Mutating it here is how the tests get
-checked for teeth: dropping the `reserved_until` guard, the `available_at`
-guard, the priority ordering, or the attempt counter each turns
-`queue_contract_v1` red.
+every consumer has to reproduce exactly. Mutating a statement here is also how
+the tests get checked for teeth, and it has found real gaps twice: dropping the
+`available_at` guard from the claim, the expired-counter reset from the cache
+increment, or `expires_at = excluded.expires_at` from the cache upsert each used
+to leave the suite green. All three are caught now, along with the
+`reserved_until` guard, priority ordering, the attempt counter, the live-view
+read, the lock's steal guard, the lock owner, the increment's delta, and the
+published channel and sequence.
+
+Coverage is partial and deliberately visible. Of the 18 operations these
+contracts publish with SQL, 7 are executed from the document; the rest are
+exercised with SQL written in the test, or not at all, and cannot be
+mutation-checked. `every_contract_operation_is_covered_or_listed` pins both
+lists, so adding an operation to a contract fails until it is classified, and
+the gap cannot grow quietly.
 
 The Askr runtime therefore builds against a proven contract that cannot silently
 drift from what the substrate actually does.

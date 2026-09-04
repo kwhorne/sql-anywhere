@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The cache lock contract read as though `acquired` could be `0`.** The
+  SETNX statement ends in `RETURNING (value = :owner) AS acquired`, which
+  invites a consumer to branch on that value. It never is `0`: `RETURNING` only
+  fires for a row that was written, and a written row always carries `:owner`,
+  so the comparison is redundant with the `WHERE` guard. The real signal is
+  whether a row came back at all, and a consumer that treated an empty result as
+  an error, or waited for a `0` that cannot arrive, would have been misled. The
+  prose now says so plainly, and the SQL carries a comment; the statement itself
+  is unchanged, so nothing built against it moves. Found by mutation testing:
+  replacing the expression with a constant `1` changed nothing.
+
 - **Three further contract guarantees were documented but unverified**, found
   the same way once the remaining operations were executed from the documents.
   Tag invalidation was never shown to be scoped to its tag, because the test had

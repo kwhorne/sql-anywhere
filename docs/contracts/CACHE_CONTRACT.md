@@ -92,7 +92,19 @@ Decrement is the same with a negative `:delta`.
 
 ### Atomic add (SETNX — the basis for `Cache::lock()`)
 
-Acquire only if absent or expired. The lock is held iff a row was written:
+Acquire only if the key is absent or its lock has expired.
+
+**The signal is the row, not the column.** A returned row means the lock was
+acquired. No row means it is held by someone else and nothing was written.
+Branch on whether you received a row.
+
+Do not branch on the value of `acquired`. It is always `1` in a returned row and
+can never be `0`: `RETURNING` only fires for a row that was actually written, and
+a written row always carries `:owner` as its value. The comparison is redundant
+with the `WHERE` guard, which is what stops a held lock from being written; it is
+kept so the intent reads in the SQL, not because it can fail. Do not treat an
+empty result as an error either. It is the normal answer for a lock that is
+taken.
 
 ```sql
 INSERT INTO askr_cache (key, value, expires_at)
@@ -101,7 +113,7 @@ ON CONFLICT(key) DO UPDATE SET
   value = excluded.value, expires_at = excluded.expires_at
   WHERE askr_cache.expires_at IS NOT NULL
     AND askr_cache.expires_at <= unixepoch()          -- only steal an expired lock
-RETURNING (value = :owner) AS acquired;
+RETURNING (value = :owner) AS acquired;               -- always 1; no row = not acquired
 ```
 
 Release only if still the owner (prevents releasing someone else's lock):

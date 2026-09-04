@@ -32,12 +32,11 @@ to leave the suite green. All three are caught now, along with the
 read, the lock's steal guard, the lock owner, the increment's delta, and the
 published channel and sequence.
 
-Coverage is partial and deliberately visible. Of the 18 operations these
-contracts publish with SQL, 7 are executed from the document; the rest are
-exercised with SQL written in the test, or not at all, and cannot be
-mutation-checked. `every_contract_operation_is_covered_or_listed` pins both
-lists, so adding an operation to a contract fails until it is classified, and
-the gap cannot grow quietly.
+Coverage is complete: all 18 operations these contracts publish with SQL are
+executed from the document, so every one of them can be mutation-checked.
+`every_contract_operation_is_covered_or_listed` keeps it that way, failing if an
+operation is added to a contract without being classified, or listed here after
+being removed from one.
 
 The Askr runtime therefore builds against a proven contract that cannot silently
 drift from what the substrate actually does.

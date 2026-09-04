@@ -82,6 +82,32 @@ const PUBSUB_CONTRACT: &str = include_str!("../../docs/contracts/PUBSUB_CONTRACT
 /// heading, a missing SQL block, a parameter the caller did not list, or a
 /// listed parameter the SQL does not use.
 fn contract_sql(contract: &str, heading: &str, order: &[&str]) -> String {
+    let mut stmts = contract_statements(contract, heading, order);
+    assert_eq!(
+        stmts.len(),
+        1,
+        "{heading:?} publishes {} statements; use contract_stmt to pick one",
+        stmts.len()
+    );
+    stmts.remove(0)
+}
+
+/// One statement from a contract operation that publishes several.
+///
+/// Some operations publish alternatives (forget one key or flush all, trim by
+/// age or by size) and some a short sequence, all in a single block. `index`
+/// picks the one the caller means, counting from the top of the block.
+fn contract_stmt(contract: &str, heading: &str, index: usize, order: &[&str]) -> String {
+    let stmts = contract_statements(contract, heading, order);
+    assert!(
+        index < stmts.len(),
+        "{heading:?} publishes {} statements, no index {index}",
+        stmts.len()
+    );
+    stmts[index].clone()
+}
+
+fn contract_statements(contract: &str, heading: &str, order: &[&str]) -> Vec<String> {
     let start = contract
         .find(&format!("### {heading}"))
         .unwrap_or_else(|| panic!("no heading {heading:?} in the contract"));
@@ -125,7 +151,24 @@ fn contract_sql(contract: &str, heading: &str, order: &[&str]) -> String {
         unbound.is_empty(),
         "{heading:?} uses named parameters the test does not bind: {unbound:?}"
     );
-    sql
+
+    // Line comments are stripped so they cannot hide a statement boundary, and
+    // so an explanatory `--` note in the contract is not sent to the engine.
+    let without_comments: String = sql
+        .lines()
+        .map(|line| match line.find("--") {
+            Some(i) => &line[..i],
+            None => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    without_comments
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 static ENQUEUE: LazyLock<String> = LazyLock::new(|| {
@@ -199,12 +242,17 @@ async fn queue_contract_v1() {
     );
 
     // Ack removes a job permanently.
-    exec(
-        &conn,
-        "DELETE FROM askr_jobs WHERE id = ?1",
-        params![first.0],
-    )
-    .await;
+    exec(&conn, &ACK, params![first.0]).await;
+    assert_eq!(
+        one_i64(
+            &conn,
+            "SELECT count(*) FROM askr_jobs WHERE id = ?1",
+            params![first.0]
+        )
+        .await,
+        Some(0),
+        "ack deletes the job"
+    );
 
     // A lapsed reservation (worker died) makes the job ready again -> at-least-once.
     exec(
@@ -218,14 +266,55 @@ async fn queue_contract_v1() {
     assert_eq!(redelivered.2, 2, "redelivery consumes another attempt");
 
     // Release (nack) re-arms immediately with backoff = 0; attempts unchanged.
-    exec(
-        &conn,
-        "UPDATE askr_jobs SET reserved_until = NULL, available_at = unixepoch() + 0 WHERE id = ?1",
-        params![c2.0],
-    )
-    .await;
+    exec(&conn, &RELEASE, params![0, c2.0]).await;
     let after_release = claim(&conn, "default", 30).await.unwrap();
     assert_eq!(after_release.0, c2.0);
+
+    // Renew extends a live reservation, and refuses a lapsed one. The contract
+    // guards on `reserved_until > unixepoch()` precisely so a worker that has
+    // already lost its claim cannot take it back from whoever holds it now.
+    //
+    // On its own job, so this cannot quietly skip when the shared queue happens
+    // to be empty. It did, in an earlier draft, and the guard mutation went
+    // unnoticed.
+    let renew_id = one_i64(&conn, &ENQUEUE, params!["renewq", "R", 0, 0, 25])
+        .await
+        .unwrap();
+    let held = claim(&conn, "renewq", 30)
+        .await
+        .expect("the job just enqueued is claimable");
+    assert_eq!(held.0, renew_id);
+
+    exec(&conn, &RENEW, params![600, renew_id]).await;
+    let extended = one_i64(
+        &conn,
+        "SELECT reserved_until - unixepoch() FROM askr_jobs WHERE id = ?1",
+        params![renew_id],
+    )
+    .await;
+    assert!(
+        extended.map(|d| d > 300).unwrap_or(false),
+        "renew pushed the reservation out, got {extended:?}"
+    );
+
+    // Let it lapse, then renew again: the guard must refuse.
+    exec(
+        &conn,
+        "UPDATE askr_jobs SET reserved_until = unixepoch() - 1 WHERE id = ?1",
+        params![renew_id],
+    )
+    .await;
+    exec(&conn, &RENEW, params![600, renew_id]).await;
+    let after_lapse = one_i64(
+        &conn,
+        "SELECT reserved_until - unixepoch() FROM askr_jobs WHERE id = ?1",
+        params![renew_id],
+    )
+    .await;
+    assert!(
+        after_lapse.map(|d| d < 0).unwrap_or(false),
+        "renew must not revive a lapsed reservation, got {after_lapse:?}"
+    );
 
     // Delayed job is not claimable until its time comes.
     let delayed = one_i64(&conn, &ENQUEUE, params!["default", "LATER", 0, 3600, 25])
@@ -253,19 +342,12 @@ async fn queue_contract_v1() {
     .await;
     let dead = claim(&conn, "default", 30).await.unwrap();
     assert!(dead.2 >= dead.3, "attempts reached max_attempts");
-    exec(
-        &conn,
-        "INSERT INTO askr_failed_jobs (uuid, queue, payload, exception, attempts)
-          SELECT ?2, queue, payload, ?3, attempts FROM askr_jobs WHERE id = ?1",
-        params![dead.0, "uuid-1", "boom"],
-    )
-    .await;
-    exec(
-        &conn,
-        "DELETE FROM askr_jobs WHERE id = ?1",
-        params![dead.0],
-    )
-    .await;
+    // Run the contract's transaction as published: BEGIN, copy, delete, COMMIT.
+    // The parameters are bound across the whole block, so every statement takes
+    // the same three.
+    for stmt in DEAD_LETTER.iter() {
+        exec(&conn, stmt, params!["uuid-1", "boom", dead.0]).await;
+    }
     assert_eq!(
         one_i64(&conn, "SELECT count(*) FROM askr_failed_jobs", ()).await,
         Some(1)
@@ -278,18 +360,7 @@ async fn queue_contract_v1() {
     );
 
     // Backlog query (FILTER) returns total / ready / oldest_seconds.
-    let mut rows = conn
-        .query(
-            "SELECT count(*) AS total,
-                count(*) FILTER (WHERE available_at <= unixepoch()
-                     AND (reserved_until IS NULL OR reserved_until <= unixepoch())) AS ready,
-                coalesce(unixepoch() - min(available_at) FILTER (WHERE available_at <= unixepoch()
-                     AND (reserved_until IS NULL OR reserved_until <= unixepoch())), 0) AS oldest
-         FROM askr_jobs WHERE queue = ?1",
-            params!["default"],
-        )
-        .await
-        .unwrap();
+    let mut rows = conn.query(&BACKLOG, params!["default"]).await.unwrap();
     let row = rows.next().await.unwrap().unwrap();
     let (total, ready) = (row.get::<i64>(0).unwrap(), row.get::<i64>(1).unwrap());
     assert!(total >= 1, "delayed job still counts toward total");
@@ -321,6 +392,49 @@ static SET: LazyLock<String> = LazyLock::new(|| {
         &["key", "value", "expires_at"],
     )
 });
+
+static ACK: LazyLock<String> =
+    LazyLock::new(|| contract_sql(QUEUE_CONTRACT, "Ack (delete on success)", &["id"]));
+
+static RELEASE: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        QUEUE_CONTRACT,
+        "Release (nack / retry with backoff)",
+        &["backoff", "id"],
+    )
+});
+
+static RENEW: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        QUEUE_CONTRACT,
+        "Renew reservation (long-running jobs / heartbeat)",
+        &["visibility", "id"],
+    )
+});
+
+/// The dead-letter move is published as a transaction: BEGIN, the copy into
+/// askr_failed_jobs, the delete, COMMIT. The test runs all four so the contract's
+/// atomicity is the thing being exercised, not a paraphrase of it.
+static DEAD_LETTER: LazyLock<Vec<String>> = LazyLock::new(|| {
+    (0..4)
+        .map(|i| {
+            contract_stmt(
+                QUEUE_CONTRACT,
+                "Move to dead-letter (max attempts exceeded)",
+                i,
+                &["uuid", "exception", "id"],
+            )
+        })
+        .collect()
+});
+
+static BACKLOG: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        QUEUE_CONTRACT,
+        "Backlog (for autoscaling / metrics)",
+        &["queue"],
+    )
+});
 static GET: LazyLock<String> = LazyLock::new(|| contract_sql(CACHE_CONTRACT, "Get", &["key"]));
 static ADD: LazyLock<String> = LazyLock::new(|| {
     contract_sql(
@@ -336,6 +450,21 @@ static INCR: LazyLock<String> = LazyLock::new(|| {
         &["key", "delta", "expires_at"],
     )
 });
+
+static FORGET: LazyLock<String> =
+    LazyLock::new(|| contract_stmt(CACHE_CONTRACT, "Forget / flush", 0, &["key"]));
+static FLUSH: LazyLock<String> =
+    LazyLock::new(|| contract_stmt(CACHE_CONTRACT, "Forget / flush", 1, &["key"]));
+
+static TAG_RECORD: LazyLock<String> =
+    LazyLock::new(|| contract_stmt(CACHE_CONTRACT, "Tags", 0, &["tag", "key"]));
+static TAG_INVALIDATE: LazyLock<String> =
+    LazyLock::new(|| contract_stmt(CACHE_CONTRACT, "Tags", 1, &["tag", "key"]));
+static TAG_CLEAR: LazyLock<String> =
+    LazyLock::new(|| contract_stmt(CACHE_CONTRACT, "Tags", 2, &["tag", "key"]));
+
+static SWEEP: LazyLock<String> =
+    LazyLock::new(|| contract_sql(CACHE_CONTRACT, "Sweep (reclaim expired rows)", &[]));
 
 #[tokio::test]
 async fn cache_contract_v1() {
@@ -445,41 +574,92 @@ async fn cache_contract_v1() {
         None
     );
 
-    // Tags: invalidate a whole tag.
-    exec(&conn, &SET, params!["p:1", "a", None::<i64>]).await;
-    exec(&conn, &SET, params!["p:2", "b", None::<i64>]).await;
-    exec(
-        &conn,
-        "INSERT OR IGNORE INTO askr_cache_tags (tag, key) VALUES ('posts','p:1'),('posts','p:2')",
-        (),
-    )
-    .await;
-    exec(
-        &conn,
-        "DELETE FROM askr_cache WHERE key IN (SELECT key FROM askr_cache_tags WHERE tag = ?1)",
-        params!["posts"],
-    )
-    .await;
-    exec(
-        &conn,
-        "DELETE FROM askr_cache_tags WHERE tag = ?1",
-        params!["posts"],
-    )
-    .await;
+    // Forget removes one key and leaves the rest alone.
+    exec(&conn, &SET, params!["keep", "k", None::<i64>]).await;
+    exec(&conn, &SET, params!["drop", "d", None::<i64>]).await;
+    exec(&conn, &FORGET, params!["drop"]).await;
     assert_eq!(
-        one_str(&conn, &GET, params!["p:1"]).await,
+        one_str(&conn, &GET, params!["drop"]).await,
         None,
-        "tag invalidation removed the key"
+        "forgotten"
+    );
+    assert_eq!(
+        one_str(&conn, &GET, params!["keep"]).await.as_deref(),
+        Some("k"),
+        "forget must not take neighbours with it"
     );
 
-    // Sweep + flush.
-    exec(
-        &conn,
-        "DELETE FROM askr_cache WHERE expires_at IS NOT NULL AND expires_at <= unixepoch()",
-        (),
-    )
-    .await;
-    exec(&conn, "DELETE FROM askr_cache", ()).await;
+    // Tags: invalidate a whole tag. Two keys under the tag and one outside it,
+    // so this proves the invalidation is scoped by tag rather than just deleting
+    // something.
+    exec(&conn, &SET, params!["p:1", "a", None::<i64>]).await;
+    exec(&conn, &SET, params!["p:2", "b", None::<i64>]).await;
+    exec(&conn, &SET, params!["other", "c", None::<i64>]).await;
+    exec(&conn, &TAG_RECORD, params!["posts", "p:1"]).await;
+    exec(&conn, &TAG_RECORD, params!["posts", "p:2"]).await;
+    // A second tag, so invalidating "posts" has to be scoped by tag rather than
+    // merely delete everything that happens to be tagged.
+    exec(&conn, &TAG_RECORD, params!["pages", "other"]).await;
+    exec(&conn, &TAG_INVALIDATE, params!["posts"]).await;
+    exec(&conn, &TAG_CLEAR, params!["posts"]).await;
+    for key in ["p:1", "p:2"] {
+        assert_eq!(
+            one_str(&conn, &GET, params![key]).await,
+            None,
+            "tag invalidation removed every key under the tag"
+        );
+    }
+    assert_eq!(
+        one_str(&conn, &GET, params!["other"]).await.as_deref(),
+        Some("c"),
+        "tag invalidation is scoped to the tag"
+    );
+    assert_eq!(
+        one_i64(
+            &conn,
+            "SELECT count(*) FROM askr_cache_tags WHERE tag = ?1",
+            params!["posts"]
+        )
+        .await,
+        Some(0),
+        "the tag's mappings are cleared too"
+    );
+    assert_eq!(
+        one_i64(
+            &conn,
+            "SELECT count(*) FROM askr_cache_tags WHERE tag = ?1",
+            params!["pages"]
+        )
+        .await,
+        Some(1),
+        "another tag's mappings survive"
+    );
+
+    // Sweep reclaims expired rows and spares live ones. Flushing straight
+    // afterwards would hide a sweep that took everything, so the two are checked
+    // apart: the earlier version swept, flushed, and asserted the table was
+    // empty, which a sweep of `DELETE FROM askr_cache` passes just as well.
+    exec(&conn, &SET, params!["sweep_live", "l", 9_999_999_999i64]).await;
+    exec(&conn, &SET, params!["sweep_dead", "d", 1i64]).await;
+    exec(&conn, &SWEEP, ()).await;
+    assert_eq!(
+        one_i64(
+            &conn,
+            "SELECT count(*) FROM askr_cache WHERE key = ?1",
+            params!["sweep_dead"]
+        )
+        .await,
+        Some(0),
+        "sweep reclaims an expired row"
+    );
+    assert_eq!(
+        one_str(&conn, &GET, params!["sweep_live"]).await.as_deref(),
+        Some("l"),
+        "sweep must not touch a live row"
+    );
+
+    // Flush empties the table.
+    exec(&conn, &FLUSH, ()).await;
     assert_eq!(
         one_i64(&conn, "SELECT count(*) FROM askr_cache", ()).await,
         Some(0)
@@ -503,6 +683,40 @@ const PUBSUB_SCHEMA: &[&str] = &[
 static PUBLISH: LazyLock<String> =
     LazyLock::new(|| contract_sql(PUBSUB_CONTRACT, "Publish", &["channel", "payload"]));
 
+static SUBSCRIBE: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        PUBSUB_CONTRACT,
+        "Subscribe (tail past a cursor)",
+        &["channel", "cursor", "batch"],
+    )
+});
+
+static CURSOR_SAVE: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        PUBSUB_CONTRACT,
+        "Persist a subscriber cursor (optional)",
+        &["name", "cursor"],
+    )
+});
+
+/// Retention publishes two alternatives, by age and by size.
+static TRIM_BY_AGE: LazyLock<String> = LazyLock::new(|| {
+    contract_stmt(
+        PUBSUB_CONTRACT,
+        "Retention (trim the log)",
+        0,
+        &["retention_seconds", "keep_last"],
+    )
+});
+static TRIM_BY_SIZE: LazyLock<String> = LazyLock::new(|| {
+    contract_stmt(
+        PUBSUB_CONTRACT,
+        "Retention (trim the log)",
+        1,
+        &["retention_seconds", "keep_last"],
+    )
+});
+
 #[tokio::test]
 async fn pubsub_contract_v1() {
     let conn = conn().await;
@@ -523,13 +737,7 @@ async fn pubsub_contract_v1() {
     assert!(s2 > s1, "seq is monotonic");
 
     // Tail one channel past a cursor with a batch limit.
-    let tail = |cursor: i64| {
-        conn.query(
-            "SELECT seq, payload, created_at FROM askr_events
-             WHERE channel = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
-            params!["orders", cursor, 10],
-        )
-    };
+    let tail = |cursor: i64| conn.query(&SUBSCRIBE, params!["orders", cursor, 10]);
     let mut rows = tail(0).await.unwrap();
     let mut got = Vec::new();
     while let Some(r) = rows.next().await.unwrap() {
@@ -563,10 +771,7 @@ async fn pubsub_contract_v1() {
     assert_eq!(all, vec!["o1", "o2", "login", "o3"]);
 
     // Persist a subscriber cursor (upsert).
-    exec(&conn,
-         "INSERT INTO askr_subscribers (name, cursor, updated_at) VALUES (?1, ?2, unixepoch())
-          ON CONFLICT(name) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at",
-         params!["sse-1", s4]).await;
+    exec(&conn, &CURSOR_SAVE, params!["sse-1", s1]).await;
     assert_eq!(
         one_i64(
             &conn,
@@ -574,16 +779,61 @@ async fn pubsub_contract_v1() {
             params!["sse-1"]
         )
         .await,
-        Some(s4)
+        Some(s1)
     );
 
-    // Retention: keep only the newest N by seq.
+    // Saving again for the same subscriber advances the cursor. The upsert is
+    // there for exactly this, and saving only once cannot tell an upsert from a
+    // plain insert that ignores the conflict.
+    exec(&conn, &CURSOR_SAVE, params!["sse-1", s4]).await;
+    assert_eq!(
+        one_i64(
+            &conn,
+            "SELECT cursor FROM askr_subscribers WHERE name = ?1",
+            params!["sse-1"]
+        )
+        .await,
+        Some(s4),
+        "the second save moved the cursor"
+    );
+    assert_eq!(
+        one_i64(&conn, "SELECT count(*) FROM askr_subscribers", ()).await,
+        Some(1),
+        "and did not add a second row for the same subscriber"
+    );
+
+    // Retention by age: only messages older than the window go.
+    // Both alternatives live in one contract block, so their parameters share a
+    // numbering: :retention_seconds is ?1 and :keep_last is ?2 in either
+    // statement, and each call passes both.
     exec(
         &conn,
-        "DELETE FROM askr_events WHERE seq <= (SELECT max(seq) FROM askr_events) - ?1",
-        params![2],
+        "INSERT INTO askr_events (channel, payload, created_at)
+             VALUES ('orders', 'ANCIENT', unixepoch() - 100000)",
+        (),
     )
     .await;
+    let before = one_i64(&conn, "SELECT count(*) FROM askr_events", ())
+        .await
+        .unwrap();
+    exec(&conn, &TRIM_BY_AGE, params![3600, 0]).await;
+    let after = one_i64(&conn, "SELECT count(*) FROM askr_events", ())
+        .await
+        .unwrap();
+    assert_eq!(after, before - 1, "trim by age removed exactly the old one");
+    assert_eq!(
+        one_i64(
+            &conn,
+            "SELECT count(*) FROM askr_events WHERE payload = 'ANCIENT'",
+            ()
+        )
+        .await,
+        Some(0),
+        "and it was the old one that went"
+    );
+
+    // Retention by size: keep only the newest N by seq.
+    exec(&conn, &TRIM_BY_SIZE, params![0, 2]).await;
     assert_eq!(
         one_i64(&conn, "SELECT count(*) FROM askr_events", ()).await,
         Some(2),
@@ -595,42 +845,39 @@ async fn pubsub_contract_v1() {
 const COVERED: &[(&str, &str)] = &[
     ("QUEUE", "Enqueue"),
     ("QUEUE", "Claim (pop)"),
-    ("CACHE", "Set (put, with optional TTL)"),
-    ("CACHE", "Get"),
-    (
-        "CACHE",
-        "Atomic add (SETNX — the basis for `Cache::lock()`)",
-    ),
-    (
-        "CACHE",
-        "Atomic increment / decrement (counters, rate limiting)",
-    ),
-    ("PUBSUB", "Publish"),
-];
-
-/// Operations a contract publishes that these tests do not execute from the
-/// document. Some are exercised with SQL written here instead, some not at all,
-/// and in neither case can the contract be mutated to check that the test has
-/// teeth. That check is what found two real gaps: an expired counter that was
-/// never verified to restart at zero, and a TTL that was never verified to move
-/// when a key is overwritten.
-///
-/// The list exists so the gap cannot grow quietly. Add an operation to a
-/// contract and this test fails until it is classified; cover one properly and
-/// the line comes out.
-const NOT_YET_COVERED: &[(&str, &str)] = &[
     ("QUEUE", "Ack (delete on success)"),
     ("QUEUE", "Release (nack / retry with backoff)"),
     ("QUEUE", "Renew reservation (long-running jobs / heartbeat)"),
     ("QUEUE", "Move to dead-letter (max attempts exceeded)"),
     ("QUEUE", "Backlog (for autoscaling / metrics)"),
+    ("CACHE", "Set (put, with optional TTL)"),
+    ("CACHE", "Get"),
     ("CACHE", "Forget / flush"),
+    (
+        "CACHE",
+        "Atomic increment / decrement (counters, rate limiting)",
+    ),
+    (
+        "CACHE",
+        "Atomic add (SETNX — the basis for `Cache::lock()`)",
+    ),
     ("CACHE", "Tags"),
     ("CACHE", "Sweep (reclaim expired rows)"),
+    ("PUBSUB", "Publish"),
     ("PUBSUB", "Subscribe (tail past a cursor)"),
     ("PUBSUB", "Persist a subscriber cursor (optional)"),
     ("PUBSUB", "Retention (trim the log)"),
 ];
+
+/// Operations a contract publishes that these tests do not execute from the
+/// document. Empty, and worth keeping that way: an entry here is a statement
+/// the contract promises and nothing proves, which cannot be checked by mutating
+/// the contract either.
+///
+/// The list exists so the gap cannot reappear quietly. Add an operation to a
+/// contract and `every_contract_operation_is_covered_or_listed` fails until it
+/// is classified.
+const NOT_YET_COVERED: &[(&str, &str)] = &[];
 
 /// Every operation with SQL in a contract is either executed from the document
 /// or listed as a known gap. Neither list may drift from the documents.

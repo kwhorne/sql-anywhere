@@ -16,12 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the queue's claim is a subtle atomic `UPDATE` that a consumer has to reproduce
   exactly. The tests now read the SQL out of `docs/contracts/*.md` and execute
   it verbatim, so editing a contract either proves the new semantics or turns
-  the test red. Coverage is partial and now visible: of the 18 operations the
-  contracts publish with SQL, 7 are executed from the document, and
-  `every_contract_operation_is_covered_or_listed` pins the rest as known gaps so
-  the list cannot grow quietly.
+  the test red. All 18 operations the contracts publish with SQL are now executed
+  from the document, so every one can be mutation-checked, and
+  `every_contract_operation_is_covered_or_listed` fails if that slips.
 
 ### Fixed
+
+- **Three further contract guarantees were documented but unverified**, found
+  the same way once the remaining operations were executed from the documents.
+  Tag invalidation was never shown to be scoped to its tag, because the test had
+  only one tag, so deleting every tagged key passed. The sweep was never shown
+  to spare live rows, because the test flushed the table immediately after and
+  asserted it was empty, which a sweep of `DELETE FROM askr_cache` also passes.
+  The subscriber cursor was never shown to advance, because it was only ever
+  saved once, which cannot tell an upsert from an insert that ignores the
+  conflict. All three are asserted now.
 
 - **Two more contract guarantees were documented but unverified.** Mutating the
   cache contract found them, the same way mutating the queue contract found the

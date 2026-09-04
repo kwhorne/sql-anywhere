@@ -2,9 +2,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use hyper::http;
-use tokio::sync::{watch, Notify};
+use tokio::sync::watch;
 use tokio::time::timeout;
 use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tower::{Layer, Service};
 
 #[derive(Clone)]
@@ -17,7 +18,7 @@ impl IdleShutdownKicker {
     pub fn new(
         idle_timeout: Duration,
         initial_idle_timeout: Option<Duration>,
-        shutdown_notifier: Arc<Notify>,
+        shutdown_notifier: CancellationToken,
     ) -> Self {
         let (sender, mut receiver) = watch::channel(());
         let connected_replicas = Arc::new(AtomicUsize::new(0));
@@ -35,7 +36,7 @@ impl IdleShutdownKicker {
                     tracing::info!(
                         "Idle timeout, no new connection in {sleep_time:.0?}. Shutting down.",
                     );
-                    shutdown_notifier.notify_waiters();
+                    shutdown_notifier.cancel();
                 }
                 sleep_time = idle_timeout;
             }

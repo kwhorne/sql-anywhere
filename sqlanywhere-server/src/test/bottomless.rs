@@ -63,6 +63,9 @@ async fn start_s3_server() {
 
 /// returns a future that once polled will shutdown the server and wait for cleanup
 fn start_db(step: u32, server: Server) -> impl Future<Output = ()> {
+    // Deliberately on the deprecated initiator, so the bridge in `start` is
+    // exercised: signalling the old Notify must still stop the server.
+    #[allow(deprecated)]
     let notify = server.shutdown.clone();
     let handle = tokio::spawn(async move {
         if let Err(e) = server.start().await {

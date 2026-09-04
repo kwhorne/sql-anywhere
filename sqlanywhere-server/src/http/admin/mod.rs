@@ -16,8 +16,8 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Notify;
 use tokio_util::io::{CopyToBytes, ReaderStream, SinkWriter};
+use tokio_util::sync::CancellationToken;
 use tokio_util::sync::PollSender;
 use tower_http::trace::DefaultOnResponse;
 use url::Url;
@@ -65,7 +65,7 @@ pub async fn run<A, C>(
     namespaces: NamespaceStore,
     connector: C,
     disable_metrics: bool,
-    shutdown: Arc<Notify>,
+    shutdown: CancellationToken,
     drain: std::time::Duration,
     auth: Option<Arc<str>>,
     set_env_filter: Option<Box<dyn Fn(&str) -> anyhow::Result<()> + Sync + Send + 'static>>,
@@ -202,7 +202,7 @@ where
         .serve(router.into_make_service())
         .with_graceful_shutdown({
             let shutdown = shutdown.clone();
-            async move { shutdown.notified().await }
+            async move { shutdown.cancelled().await }
         });
     crate::serve_with_bounded_drain(server, shutdown, drain)
         .await

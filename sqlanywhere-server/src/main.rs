@@ -2,7 +2,6 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Result};
 use bytesize::ByteSize;
@@ -11,8 +10,8 @@ use hyper::client::HttpConnector;
 use sqlanywhere_server::auth::{
     parse_http_basic_auth_arg, parse_jwt_keys, user_auth_strategies, Auth,
 };
-use tokio::sync::Notify;
 use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -671,7 +670,7 @@ async fn build_server(
     let heartbeat_config = make_hearbeat_config(config);
     let meta_store_config = make_meta_store_config(config)?;
 
-    let shutdown = Arc::new(Notify::new());
+    let shutdown = CancellationToken::new();
     tokio::spawn({
         let shutdown = shutdown.clone();
         async move {
@@ -685,7 +684,7 @@ async fn build_server(
                     signal
                 );
 
-                shutdown.notify_waiters();
+                shutdown.cancel();
             }
         }
     });
@@ -700,7 +699,10 @@ async fn build_server(
         .enable_all_versions()
         .wrap_connector(http);
 
-    Ok(Server {
+    // The deprecated `shutdown` field is filled only because it still exists;
+    // nothing signals it. The token is the initiator.
+    #[allow(deprecated)]
+    let server = Server {
         path: config.db_path.clone().into(),
         db_config,
         user_api_config,
@@ -714,7 +716,8 @@ async fn build_server(
             .map(Duration::from_secs),
         disable_default_namespace: config.disable_default_namespace,
         disable_namespaces: !config.enable_namespaces,
-        shutdown,
+        shutdown: Default::default(),
+        shutdown_token: shutdown,
         max_active_namespaces: config.max_active_namespaces,
         meta_store_config,
         max_concurrent_connections: config.max_concurrent_connections,
@@ -730,7 +733,8 @@ async fn build_server(
         force_load_wals: config.force_load_wals,
         sync_conccurency: config.sync_conccurency,
         set_log_level: Some(Box::new(set_log_level)),
-    })
+    };
+    Ok(server)
 }
 
 #[tokio::main]

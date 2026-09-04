@@ -450,7 +450,7 @@ where
                     .serve(h2c)
                     .with_graceful_shutdown({
                         let shutdown = shutdown.clone();
-                        async move { shutdown.notified().await }
+                        async move { shutdown.cancelled().await }
                     });
                 crate::serve_with_bounded_drain(server, shutdown, drain)
                     .await

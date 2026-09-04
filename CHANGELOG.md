@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The lock's release statement was transcribed into the test rather than read
+  from the contract, and the coverage guard could not see it.** The lock
+  operation publishes two SQL blocks under one heading, acquire and release. The
+  extractor reached only the first, so release was a hand copy in the test, and
+  the guard counted headings rather than blocks, so a heading with an uncovered
+  second block looked fully covered. Both are fixed: the extractor takes a block
+  index, bounded to the heading's own section so an index past the end fails
+  loudly instead of reading the next operation, and the guard now enumerates
+  every block. Release is executed from the document, and mutating it either way,
+  ignoring the owner or deleting nothing, turns `cache_contract_v1` red. Every
+  block the three contracts publish is now covered.
+
 - **The cache lock contract read as though `acquired` could be `0`.** The
   SETNX statement ends in `RETURNING (value = :owner) AS acquired`, which
   invites a consumer to branch on that value. It never is `0`: `RETURNING` only

@@ -108,14 +108,35 @@ fn contract_stmt(contract: &str, heading: &str, index: usize, order: &[&str]) ->
 }
 
 fn contract_statements(contract: &str, heading: &str, order: &[&str]) -> Vec<String> {
+    contract_block(contract, heading, 0, order)
+}
+
+/// The statements in the `block`-th SQL block under `heading`, counting from
+/// zero. Most operations publish one block; the lock operation publishes two,
+/// acquire and release, and the extractor used to reach only the first.
+///
+/// The search is bounded to the heading's own section, so an index that runs
+/// past the last block fails loudly instead of quietly reading the next
+/// operation's SQL.
+fn contract_block(contract: &str, heading: &str, block: usize, order: &[&str]) -> Vec<String> {
     let start = contract
         .find(&format!("### {heading}"))
         .unwrap_or_else(|| panic!("no heading {heading:?} in the contract"));
-    let body = &contract[start..];
-    let open = body
-        .find("```sql")
-        .unwrap_or_else(|| panic!("no sql block under {heading:?}"));
-    let rest = &body[open + "```sql".len()..];
+    let after_heading = start + heading.len() + 4;
+    let end = contract[after_heading..]
+        .find("\n### ")
+        .map(|o| after_heading + o)
+        .unwrap_or(contract.len());
+    let section = &contract[start..end];
+
+    let mut opens = section.match_indices("```sql").map(|(i, _)| i);
+    let open = opens.nth(block).unwrap_or_else(|| {
+        panic!(
+            "{heading:?} has {} sql block(s), no block {block}",
+            section.matches("```sql").count()
+        )
+    });
+    let rest = &section[open + "```sql".len()..];
     let close = rest
         .find("```")
         .unwrap_or_else(|| panic!("unterminated sql block under {heading:?}"));
@@ -443,6 +464,19 @@ static ADD: LazyLock<String> = LazyLock::new(|| {
         &["key", "owner", "ttl"],
     )
 });
+
+/// Release, from the second SQL block under the lock heading: delete only if
+/// still the owner, so nobody releases a lock that has since been stolen.
+static RELEASE_LOCK: LazyLock<String> = LazyLock::new(|| {
+    let mut stmts = contract_block(
+        CACHE_CONTRACT,
+        "Atomic add (SETNX — the basis for `Cache::lock()`)",
+        1,
+        &["key", "owner"],
+    );
+    assert_eq!(stmts.len(), 1, "the release block publishes one statement");
+    stmts.remove(0)
+});
 static INCR: LazyLock<String> = LazyLock::new(|| {
     contract_sql(
         CACHE_CONTRACT,
@@ -550,12 +584,7 @@ async fn cache_contract_v1() {
     );
 
     // Release only if still the owner.
-    exec(
-        &conn,
-        "DELETE FROM askr_cache WHERE key = ?1 AND value = ?2",
-        params!["lock", "owA"],
-    )
-    .await;
+    exec(&conn, &RELEASE_LOCK, params!["lock", "owA"]).await;
     assert_eq!(
         one_str(&conn, "SELECT value FROM askr_cache WHERE key='lock'", ())
             .await
@@ -563,12 +592,7 @@ async fn cache_contract_v1() {
         Some("owB"),
         "wrong owner cannot release"
     );
-    exec(
-        &conn,
-        "DELETE FROM askr_cache WHERE key = ?1 AND value = ?2",
-        params!["lock", "owB"],
-    )
-    .await;
+    exec(&conn, &RELEASE_LOCK, params!["lock", "owB"]).await;
     assert_eq!(
         one_str(&conn, "SELECT value FROM askr_cache WHERE key='lock'", ()).await,
         None
@@ -842,42 +866,59 @@ async fn pubsub_contract_v1() {
 }
 
 /// Operations these tests execute straight from the contract documents.
-const COVERED: &[(&str, &str)] = &[
-    ("QUEUE", "Enqueue"),
-    ("QUEUE", "Claim (pop)"),
-    ("QUEUE", "Ack (delete on success)"),
-    ("QUEUE", "Release (nack / retry with backoff)"),
-    ("QUEUE", "Renew reservation (long-running jobs / heartbeat)"),
-    ("QUEUE", "Move to dead-letter (max attempts exceeded)"),
-    ("QUEUE", "Backlog (for autoscaling / metrics)"),
-    ("CACHE", "Set (put, with optional TTL)"),
-    ("CACHE", "Get"),
-    ("CACHE", "Forget / flush"),
+/// SQL blocks these tests execute straight from the contract documents, as
+/// (contract, heading, block index). The index matters: an operation may publish
+/// more than one block under a single heading, and each one is a statement the
+/// contract promises.
+const COVERED: &[(&str, &str, usize)] = &[
+    ("QUEUE", "Enqueue", 0),
+    ("QUEUE", "Claim (pop)", 0),
+    ("QUEUE", "Ack (delete on success)", 0),
+    ("QUEUE", "Release (nack / retry with backoff)", 0),
+    (
+        "QUEUE",
+        "Renew reservation (long-running jobs / heartbeat)",
+        0,
+    ),
+    ("QUEUE", "Move to dead-letter (max attempts exceeded)", 0),
+    ("QUEUE", "Backlog (for autoscaling / metrics)", 0),
+    ("CACHE", "Set (put, with optional TTL)", 0),
+    ("CACHE", "Get", 0),
+    ("CACHE", "Forget / flush", 0),
     (
         "CACHE",
         "Atomic increment / decrement (counters, rate limiting)",
+        0,
     ),
     (
         "CACHE",
         "Atomic add (SETNX — the basis for `Cache::lock()`)",
+        0,
     ),
-    ("CACHE", "Tags"),
-    ("CACHE", "Sweep (reclaim expired rows)"),
-    ("PUBSUB", "Publish"),
-    ("PUBSUB", "Subscribe (tail past a cursor)"),
-    ("PUBSUB", "Persist a subscriber cursor (optional)"),
-    ("PUBSUB", "Retention (trim the log)"),
+    (
+        "CACHE",
+        "Atomic add (SETNX — the basis for `Cache::lock()`)",
+        1,
+    ),
+    ("CACHE", "Tags", 0),
+    ("CACHE", "Sweep (reclaim expired rows)", 0),
+    ("PUBSUB", "Publish", 0),
+    ("PUBSUB", "Subscribe (tail past a cursor)", 0),
+    ("PUBSUB", "Persist a subscriber cursor (optional)", 0),
+    ("PUBSUB", "Retention (trim the log)", 0),
 ];
 
-/// Operations a contract publishes that these tests do not execute from the
-/// document. Empty, and worth keeping that way: an entry here is a statement
-/// the contract promises and nothing proves, which cannot be checked by mutating
-/// the contract either.
+/// SQL blocks a contract publishes that these tests do not execute from the
+/// document. Empty, and worth keeping that way: an entry here is a statement the
+/// contract promises and nothing proves, which cannot be checked by mutating the
+/// contract either.
 ///
-/// The list exists so the gap cannot reappear quietly. Add an operation to a
-/// contract and `every_contract_operation_is_covered_or_listed` fails until it
-/// is classified.
-const NOT_YET_COVERED: &[(&str, &str)] = &[];
+/// The list exists so the gap cannot reappear quietly. Add a block to a contract
+/// and `every_contract_operation_is_covered_or_listed` fails until it is
+/// classified. It counts blocks rather than headings precisely because the lock
+/// operation hid a second, uncovered block under one heading for as long as it
+/// counted headings.
+const NOT_YET_COVERED: &[(&str, &str, usize)] = &[];
 
 /// Every operation with SQL in a contract is either executed from the document
 /// or listed as a known gap. Neither list may drift from the documents.
@@ -903,34 +944,39 @@ fn every_contract_operation_is_covered_or_listed() {
                 .find("\n### ")
                 .map(|o| start + o)
                 .unwrap_or(body.len());
-            if body[start..end].contains("```sql") {
-                documented.push((name, heading));
+            // One entry per SQL block, not per heading: a heading can publish
+            // several statements, and each is a promise.
+            for block in 0..body[start..end].matches("```sql").count() {
+                documented.push((name, heading.clone(), block));
             }
         }
     }
 
-    for (contract, heading) in &documented {
-        let covered = COVERED.iter().any(|(c, h)| c == contract && h == heading);
+    for (contract, heading, block) in &documented {
+        let covered = COVERED
+            .iter()
+            .any(|(c, h, b)| c == contract && h == heading && b == block);
         let listed = NOT_YET_COVERED
             .iter()
-            .any(|(c, h)| c == contract && h == heading);
+            .any(|(c, h, b)| c == contract && h == heading && b == block);
         assert!(
             covered || listed,
-            "{contract} contract publishes {heading:?}, which is neither executed \
-             from the document nor listed as a known gap"
+            "{contract} contract publishes block {block} of {heading:?}, which is \
+             neither executed from the document nor listed as a known gap"
         );
         assert!(
             !(covered && listed),
-            "{contract} / {heading:?} is in both lists"
+            "{contract} / {heading:?} block {block} is in both lists"
         );
     }
 
-    for (contract, heading) in COVERED.iter().chain(NOT_YET_COVERED) {
+    for (contract, heading, block) in COVERED.iter().chain(NOT_YET_COVERED) {
         assert!(
             documented
                 .iter()
-                .any(|(c, h)| c == contract && h == heading),
-            "{contract} / {heading:?} is listed here but no longer in the contract"
+                .any(|(c, h, b)| c == contract && h == heading && b == block),
+            "{contract} / {heading:?} block {block} is listed here but no longer in \
+             the contract"
         );
     }
 }

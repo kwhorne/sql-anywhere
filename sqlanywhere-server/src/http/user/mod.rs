@@ -445,10 +445,14 @@ where
             let router = router.fallback(handle_fallback);
             let h2c = crate::h2c::H2cMaker::new(router);
 
-            task_manager.spawn_with_shutdown_notify(|shutdown| async move {
-                hyper::server::Server::builder(acceptor)
+            task_manager.spawn_with_shutdown_notify(|shutdown, drain| async move {
+                let server = hyper::server::Server::builder(acceptor)
                     .serve(h2c)
-                    .with_graceful_shutdown(shutdown.notified())
+                    .with_graceful_shutdown({
+                        let shutdown = shutdown.clone();
+                        async move { shutdown.notified().await }
+                    });
+                crate::serve_with_bounded_drain(server, shutdown, drain)
                     .await
                     .context("http server")?;
                 Ok(())

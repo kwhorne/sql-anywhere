@@ -66,6 +66,7 @@ pub async fn run<A, C>(
     connector: C,
     disable_metrics: bool,
     shutdown: Arc<Notify>,
+    drain: std::time::Duration,
     auth: Option<Arc<str>>,
     set_env_filter: Option<Box<dyn Fn(&str) -> anyhow::Result<()> + Sync + Send + 'static>>,
 ) -> anyhow::Result<()>
@@ -197,9 +198,13 @@ where
         .merge(grpc_router)
         .layer(axum::middleware::from_fn_with_state(auth, auth_middleware));
 
-    hyper::server::Server::builder(acceptor)
+    let server = hyper::server::Server::builder(acceptor)
         .serve(router.into_make_service())
-        .with_graceful_shutdown(shutdown.notified())
+        .with_graceful_shutdown({
+            let shutdown = shutdown.clone();
+            async move { shutdown.notified().await }
+        });
+    crate::serve_with_bounded_drain(server, shutdown, drain)
         .await
         .context("Could not bind admin HTTP API server")?;
 

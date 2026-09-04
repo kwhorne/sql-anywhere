@@ -199,7 +199,7 @@ fn primary_regenerate_log_no_replica_restart() {
                 }
             };
             let server = make_server().await;
-            let shutdown = server.shutdown.clone();
+            let shutdown = server.shutdown_token();
 
             let fut = async move { server.start_sim(8080).await };
 
@@ -212,7 +212,7 @@ fn primary_regenerate_log_no_replica_restart() {
                         break
                     }
                     _ = notify.notified() => {
-                        shutdown.notify_waiters();
+                        shutdown.cancel();
                     },
                 }
             }
@@ -379,7 +379,7 @@ fn primary_regenerate_log_with_replica_restart() {
                 }
             };
             let server = make_server().await;
-            let shutdown = server.shutdown.clone();
+            let shutdown = server.shutdown_token();
 
             let fut = async move { server.start_sim(8080).await };
 
@@ -392,7 +392,7 @@ fn primary_regenerate_log_with_replica_restart() {
                         break
                     }
                     _ = notify.notified() => {
-                        shutdown.notify_waiters();
+                        shutdown.cancel();
                     },
                 }
             }
@@ -439,7 +439,7 @@ fn primary_regenerate_log_with_replica_restart() {
             };
 
             let server = make_server().await;
-            let shutdown = server.shutdown.clone();
+            let shutdown = server.shutdown_token();
             let fut = async {
                 server.start_sim(8080).await.unwrap();
             };
@@ -454,7 +454,7 @@ fn primary_regenerate_log_with_replica_restart() {
                 tokio::select! {
                     _ = &mut fut => break,
                     _ = &mut notify_fut => {
-                        shutdown.notify_waiters();
+                        shutdown.cancel();
                     }
                 }
             }

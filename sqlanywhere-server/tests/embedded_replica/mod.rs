@@ -419,7 +419,7 @@ fn replica_primary_reset() {
                 }
             };
             let server = make_server().await;
-            let shutdown = server.shutdown.clone();
+            let shutdown = server.shutdown_token();
 
             let fut = async move { server.start_sim(8080).await };
 
@@ -432,7 +432,7 @@ fn replica_primary_reset() {
                         break
                     }
                     _ = notify.notified() => {
-                        shutdown.notify_waiters();
+                        shutdown.cancel();
                     },
                 }
             }
@@ -1279,7 +1279,7 @@ fn replicated_return() {
                 }
             };
             let server = make_server().await;
-            let shutdown = server.shutdown.clone();
+            let shutdown = server.shutdown_token();
 
             let fut = async move { server.start_sim(8080).await };
 
@@ -1292,7 +1292,7 @@ fn replicated_return() {
                         break
                     }
                     _ = notify.notified() => {
-                        shutdown.notify_waiters();
+                        shutdown.cancel();
                     },
                 }
             }
@@ -1558,7 +1558,7 @@ fn replicated_synced_frames_zero_when_no_data_synced() {
             };
 
             let server = make_server().await;
-            let shutdown = server.shutdown.clone();
+            let shutdown = server.shutdown_token();
 
             let fut = async move { server.start_sim(8080).await };
 
@@ -1571,7 +1571,7 @@ fn replicated_synced_frames_zero_when_no_data_synced() {
                         break
                     }
                     _ = notify.notified() => {
-                        shutdown.notify_waiters();
+                        shutdown.cancel();
                     },
                 }
             }

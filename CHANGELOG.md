@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The shutdown signal is now a level-triggered `CancellationToken`, and the
+  `Notify` on `Server.shutdown` is deprecated.** `Notify::notify_waiters` is
+  edge-triggered: it reaches only the tasks already parked on `notified()` at
+  that instant, and a task not yet polled misses it for good and runs on
+  forever. That is the shutdown hang. #36 and #40 narrowed the window by polling
+  early; this closes it, because a cancelled token stays cancelled and a
+  listener that only starts afterwards still sees it. `Server::shutdown_token()`
+  is the new initiator. The old field still works: `start` bridges it into the
+  token, so existing callers keep the narrow window they have today rather than
+  breaking. `Server` gains a public `shutdown_token` field, which is a breaking
+  change for anyone constructing it by struct literal without
+  `..Default::default()`, so this lands in 0.7.0.
+
 - **The storage contracts are now the source of the SQL their tests run.**
   `contract_conformance.rs` held its own copy of every contract statement, so
   "executable spec" meant a test that contained a transcription of the document

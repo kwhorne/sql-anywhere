@@ -46,6 +46,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 use url::Url;
 use utils::services::idle_shutdown::IdleShutdownKicker;
@@ -138,7 +139,24 @@ pub struct Server<C = HttpConnector, A = AddrIncoming, D = HttpsConnector<HttpCo
     pub disable_default_namespace: bool,
     pub heartbeat_config: Option<HeartbeatConfig>,
     pub disable_namespaces: bool,
+    /// Deprecated initiator, kept so existing callers keep working.
+    ///
+    /// `Notify::notify_waiters` is edge-triggered: it reaches only the tasks
+    /// already parked on `notified()` at that instant, and a task not yet polled
+    /// misses it for good. That is the shutdown hang, narrowed in #36 and #40
+    /// but never closed. Prefer [`Server::shutdown_token`], which is
+    /// level-triggered and cannot be missed. Signalling this field still works:
+    /// `start` bridges it into the token.
+    #[deprecated(
+        since = "0.7.0",
+        note = "use Server::shutdown_token() and CancellationToken::cancel(); \
+                Notify is edge-triggered and a late listener misses the signal"
+    )]
     pub shutdown: Arc<Notify>,
+    /// The shutdown signal. Level-triggered: once cancelled, every listener sees
+    /// it, including one that only starts listening afterwards. Cancel it to
+    /// stop the server.
+    pub shutdown_token: CancellationToken,
     pub max_active_namespaces: usize,
     pub meta_store_config: MetaStoreConfig,
     pub max_concurrent_connections: usize,
@@ -154,6 +172,7 @@ pub struct Server<C = HttpConnector, A = AddrIncoming, D = HttpsConnector<HttpCo
 }
 
 impl<C, A, D> Default for Server<C, A, D> {
+    #[allow(deprecated)]
     fn default() -> Self {
         Self {
             path: PathBuf::from("data.sqld").into(),
@@ -168,6 +187,7 @@ impl<C, A, D> Default for Server<C, A, D> {
             heartbeat_config: Default::default(),
             disable_namespaces: true,
             shutdown: Default::default(),
+            shutdown_token: CancellationToken::new(),
             max_active_namespaces: 100,
             meta_store_config: Default::default(),
             max_concurrent_connections: 128,
@@ -200,7 +220,7 @@ struct Services<A, P, S, C> {
 
 struct TaskManager {
     join_set: JoinSet<anyhow::Result<()>>,
-    shutdown: Arc<Notify>,
+    shutdown: CancellationToken,
     /// How long a service may spend draining in-flight work after shutdown is
     /// signalled. Derived from `shutdown_timeout` rather than configured
     /// separately, so there is one knob and this stays comfortably inside it,
@@ -215,7 +235,7 @@ impl TaskManager {
     /// receiving the signal.
     pub fn spawn_with_shutdown_notify<F, Fut>(&mut self, f: F)
     where
-        F: FnOnce(Arc<Notify>, Duration) -> Fut,
+        F: FnOnce(CancellationToken, Duration) -> Fut,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let fut = f(self.shutdown.clone(), self.drain_timeout);
@@ -239,7 +259,7 @@ impl TaskManager {
         let shutdown = self.shutdown.clone();
         self.join_set.spawn(async move {
             tokio::select! {
-                _ = shutdown.notified() => {
+                _ = shutdown.cancelled() => {
                     let ret = teardown.await;
                     if let Err(ref e) = ret {
                         let caller = std::panic::Location::caller();
@@ -252,16 +272,18 @@ impl TaskManager {
         });
     }
 
-    fn new(shutdown_timeout: Duration) -> Self {
+    fn new(shutdown: CancellationToken, shutdown_timeout: Duration) -> Self {
         Self {
             join_set: JoinSet::new(),
-            shutdown: Arc::new(Notify::new()),
+            shutdown,
             drain_timeout: shutdown_timeout / 2,
         }
     }
 
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
-        self.shutdown.notify_waiters();
+        // Level-triggered: a task that has not started listening yet still sees
+        // this when it does. With Notify this was the lost-wakeup hang.
+        self.shutdown.cancel();
         while let Some(ret) = self.join_set.join_next().await {
             ret??
         }
@@ -330,19 +352,12 @@ where
 /// Run a hyper server so that it reliably hears the shutdown signal, and cannot
 /// spend forever draining once it has.
 ///
-/// The first half is what actually fixed the shutdown hang, and it is easy to
-/// undo by accident, so: `Notify::notify_waiters` wakes only the waiters that
-/// are registered at the instant it is called, and a `Notified` future does not
-/// register until it is first polled. Handing `shutdown.notified()` straight to
-/// `with_graceful_shutdown` leaves that first poll up to hyper, which does not
-/// necessarily happen before shutdown is signalled on an idle server. The signal
-/// was then lost for good, the server ran on, and `TaskManager::shutdown` waited
-/// on a task that would never finish. The `select!` below polls `notified()` as
-/// soon as this task runs, so a waiter always exists in time.
-///
-/// Keep that property if you rewrite this. Re-arming the notification in
-/// `TaskManager::shutdown` does not substitute for it: a future that is never
-/// polled never registers, however many times you signal.
+/// The signal is a `CancellationToken`, which is level-triggered: once cancelled
+/// it stays cancelled, and a listener that only starts waiting afterwards sees it
+/// anyway. That is what closes the shutdown hang for good. The previous signal
+/// was a `Notify`, whose `notify_waiters` reaches only the waiters registered at
+/// that instant; a task not yet polled missed it and ran on forever. #36 and #40
+/// narrowed that window by polling early. This removes it.
 ///
 /// The `drain` deadline is the second half, and it is a backstop rather than the
 /// fix. A server cannot make its own shutdown conditional on clients letting go
@@ -354,7 +369,7 @@ where
 /// window opens.
 pub(crate) async fn serve_with_bounded_drain<F, E>(
     server: F,
-    shutdown: Arc<Notify>,
+    shutdown: CancellationToken,
     drain: Duration,
 ) -> Result<(), E>
 where
@@ -363,7 +378,7 @@ where
     tokio::pin!(server);
     tokio::select! {
         res = &mut server => res,
-        _ = shutdown.notified() => {
+        _ = shutdown.cancelled() => {
             match tokio::time::timeout(drain, &mut server).await {
                 Ok(res) => res,
                 Err(_) => {
@@ -592,9 +607,16 @@ where
         }
     }
 
+    /// The shutdown signal. Call [`CancellationToken::cancel`] on it to stop the
+    /// server. Level-triggered, so it is safe to cancel at any time, including
+    /// before `start` has been polled at all.
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown_token.clone()
+    }
+
     pub async fn start(mut self) -> anyhow::Result<()> {
         static INIT: std::sync::Once = std::sync::Once::new();
-        let mut task_manager = TaskManager::new(self.shutdown_timeout);
+        let mut task_manager = TaskManager::new(self.shutdown_token.clone(), self.shutdown_timeout);
 
         if self.enable_deadlock_monitor {
             install_deadlock_monitor();
@@ -741,7 +763,15 @@ where
         }
 
         let shutdown_timeout = self.shutdown_timeout.clone();
-        let shutdown = self.shutdown.clone();
+        // Bridge the deprecated initiator into the real signal. Anyone still
+        // calling `shutdown.notify_waiters()` wakes this select, which cancels
+        // the token so every task sees a level-triggered signal. This listener
+        // is polled the moment the server starts, long before any caller could
+        // signal, so the deprecated path keeps the narrow window it has today
+        // while the token path has none.
+        #[allow(deprecated)]
+        let legacy_shutdown = self.shutdown.clone();
+        let shutdown = self.shutdown_token.clone();
         let service_shutdown = Arc::new(Notify::new());
         // setup user-facing rpc services
         match db_kind {
@@ -821,7 +851,12 @@ where
         };
 
         tokio::select! {
-            _ = shutdown.notified() => {
+            _ = async {
+                tokio::select! {
+                    _ = shutdown.cancelled() => {},
+                    _ = legacy_shutdown.notified() => shutdown.cancel(),
+                }
+            } => {
                 let shutdown = async {
                     namespace_store.shutdown().await?;
                     task_manager.shutdown().await?;
@@ -984,7 +1019,7 @@ where
     }
 
     fn setup_shutdown(&self) -> Option<IdleShutdownKicker> {
-        let shutdown_notify = self.shutdown.clone();
+        let shutdown_notify = self.shutdown_token.clone();
         self.idle_shutdown_timeout.map(|d| {
             IdleShutdownKicker::new(d, self.initial_idle_shutdown_timeout, shutdown_notify)
         })
@@ -1076,23 +1111,18 @@ fn setup_sqlite_alloc() {
 
 #[cfg(test)]
 mod shutdown_tests {
-    use std::sync::Arc;
     use std::time::Duration;
 
-    use tokio::sync::Notify;
+    use tokio_util::sync::CancellationToken;
 
     use super::serve_with_bounded_drain;
 
-    /// Guards the property that fixed the shutdown hang.
-    ///
     /// A server future that never completes on its own must still stop once
-    /// shutdown is signalled. That only works because `serve_with_bounded_drain`
-    /// polls `notified()` itself, registering a waiter, rather than leaving that
-    /// first poll to hyper. Remove the `select!` branch and this hangs, which is
-    /// exactly the failure it replaced.
+    /// shutdown is signalled, whether the signal arrives while it is listening
+    /// or, as the next test shows, before it has started.
     #[tokio::test]
     async fn stops_once_shutdown_is_signalled() {
-        let shutdown = Arc::new(Notify::new());
+        let shutdown = CancellationToken::new();
         let server = std::future::pending::<Result<(), std::io::Error>>();
 
         let signal = shutdown.clone();
@@ -1100,12 +1130,9 @@ mod shutdown_tests {
             serve_with_bounded_drain(server, signal, Duration::from_millis(50)).await
         });
 
-        // Let the task run far enough to register as a waiter. This is the
-        // window the fix narrows: `notify_waiters` reaches only waiters that
-        // already exist.
         tokio::task::yield_now().await;
         tokio::time::sleep(Duration::from_millis(20)).await;
-        shutdown.notify_waiters();
+        shutdown.cancel();
 
         let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
         assert!(
@@ -1115,6 +1142,27 @@ mod shutdown_tests {
         assert!(
             result.unwrap().unwrap().is_ok(),
             "dropping connections at the drain deadline is not an error"
+        );
+    }
+
+    /// The property that could not hold with `Notify`, and the reason for the
+    /// switch: cancel before the task has been polled even once, and it must
+    /// still stop. A `Notified` future never polled never registers, so the old
+    /// signal was lost here every time.
+    #[tokio::test]
+    async fn stops_even_when_cancelled_before_first_poll() {
+        let shutdown = CancellationToken::new();
+        shutdown.cancel();
+
+        let server = std::future::pending::<Result<(), std::io::Error>>();
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            serve_with_bounded_drain(server, shutdown, Duration::from_millis(50)),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "a listener that starts after cancellation must still see it"
         );
     }
 }

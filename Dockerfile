@@ -1,11 +1,23 @@
 # build sqld
 FROM rust:slim-bullseye AS chef
-RUN apt update \
-    && apt install -y libclang-dev clang \
-        build-essential tcl protobuf-compiler file \
-        libssl-dev pkg-config git cmake \
-    && apt clean \
-    && rm -rf /var/lib/apt/lists/*
+# deb.debian.org is a CDN, and an edge node occasionally serves a Packages
+# index older than the security pool it points at. apt then asks for the exact
+# versions the index names, the pool has already rotated them away, and the
+# build dies on a 404 for a package nobody chose. It moves around: different
+# packages and different stages on each run. Retry with a genuinely fresh index
+# rather than fail a release build on it.
+RUN ok=0; \
+    for attempt in 1 2 3 4 5; do \
+        rm -rf /var/lib/apt/lists/*; \
+        if apt-get update && apt-get install -y libclang-dev clang \
+                build-essential tcl protobuf-compiler file \
+                libssl-dev pkg-config git cmake; then ok=1; break; fi; \
+        echo "apt attempt $attempt failed, retrying with a fresh index"; \
+        sleep $((attempt * 5)); \
+    done; \
+    [ "$ok" = 1 ] || { echo "apt failed after 5 attempts"; exit 1; }; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 # We need to install and set as default the toolchain specified in rust-toolchain.toml
 # Otherwise cargo-chef will build dependencies using wrong toolchain
@@ -44,8 +56,15 @@ ENV GOSU_VERSION 1.17
 RUN set -eux; \
 # save list of currently installed packages for later so we can clean up
 	savedAptMark="$(apt-mark showmanual)"; \
-	apt-get update; \
-	apt-get install -y --no-install-recommends ca-certificates gnupg wget; \
+	ok=0; \
+	for attempt in 1 2 3 4 5; do \
+		rm -rf /var/lib/apt/lists/*; \
+		if apt-get update && apt-get install -y --no-install-recommends \
+				ca-certificates gnupg wget; then ok=1; break; fi; \
+		echo "apt attempt $attempt failed, retrying with a fresh index"; \
+		sleep $((attempt * 5)); \
+	done; \
+	[ "$ok" = 1 ] || { echo "apt failed after 5 attempts"; exit 1; }; \
 	rm -rf /var/lib/apt/lists/*; \
 	\
 	dpkgArch="$(dpkg --print-architecture | awk -F- '{ print $NF }')"; \

@@ -21,6 +21,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   about. Both paths are overridable with `--pubkey` and `--secret`, and the
   command now prints the exact `gh secret set` line to run next.
 
+### Fixed
+
+- **Every embedded-replica connection was closed twice.**
+  `SqlanywhereConnection`'s `Drop` called `disconnect()`, and then the
+  `Connection` field it had just called it on was itself dropped, whose `Drop`
+  called `disconnect()` again on the same value. The `drop_ref` count is
+  identical at both calls, so both concluded they were the last owner and both
+  called `sqlite3_close_v2` on the same handle. The refcount guard answers "is
+  anyone else still using this connection", not "have I already closed it".
+  Closing an already-freed handle is undefined behaviour, survivable here only
+  by luck. SQLite reported the second close as `SQLITE_MISUSE`, which had been
+  sitting unread in the embedded-replica test output as `sqlite error 21: API
+  call with invalid database connection pointer`, next to `misuse at line
+  185183`, the `SQLITE_MISUSE_BKPT` in `sqlite3Close`. `disconnect()` now clears
+  the handle it closed, which makes it idempotent, and is pinned by
+  `disconnect_closes_once`, a test that fails without the fix. Present in 0.6.0
+  and every earlier release; no database or file format is affected.
+
+- **Two flaky tests in `sqlanywhere-server`, with unrelated causes.**
+  `test_many_concurrent` asserted that opening a write transaction always
+  succeeds. It does not: `ConnectionManager::acquire` returns `SQLITE_BUSY` on
+  purpose while a checkpoint holds the slot, so that writers cannot starve the
+  checkpointer, and the test crossed the auto-checkpoint threshold often enough
+  to meet one on a loaded runner. It now retries on a busy error, bounded, with
+  the error classification pinned by its own test.
+  `local_sync_with_writes` exhausted a 120s simulated budget that in practice
+  measured disk speed rather than protocol steps, because the test performs real
+  file I/O inside a simulation whose clock advances independently of it:
+  reproduced at 0/12 on overlayfs against 12/12 on tmpfs with the same binary,
+  and raised to the 1000s the rest of these simulations use. The full server
+  suite now runs 200/200 with no retries.
+
 ## [0.6.0] - 2026-09-03
 
 Extensions you can trust. The loadable-extension ABI can now describe itself, so

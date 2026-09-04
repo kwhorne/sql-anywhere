@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Shutdown now completes instead of hanging, at the cost of dropping
+  connections that will not drain.** `sqld` stopped accepting new connections
+  when signalled and then waited for the in-flight ones with no deadline, so a
+  client holding a connection open blocked shutdown for as long as it liked.
+  In practice that meant shutdown hung until `shutdown_timeout` and then failed,
+  which is a slow deploy, a container that will not die, and eventually a
+  SIGKILL from whatever is supervising it. Each HTTP service now gets a bounded
+  drain window after the signal, and anything still in flight when it closes is
+  dropped. The window is derived from `shutdown_timeout` rather than configured
+  separately, so there is still one knob and the outer timeout goes back to
+  being a backstop rather than the mechanism. Reproduced at roughly one run in
+  four on slow storage before, 40 out of 40 clean after, and the full server
+  suite is green across repeated runs.
+
+
 - **`extension-keygen` no longer writes the private key into the repository.**
   It defaulted the whole key pair to `sqlanywhere-sqlite3/ext/`, so the trust
   root's private half landed in a working tree, where `.gitignore` is the only

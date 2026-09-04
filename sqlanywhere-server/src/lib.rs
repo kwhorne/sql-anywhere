@@ -201,16 +201,24 @@ struct Services<A, P, S, C> {
 struct TaskManager {
     join_set: JoinSet<anyhow::Result<()>>,
     shutdown: Arc<Notify>,
+    /// How long a service may spend draining in-flight work after shutdown is
+    /// signalled. Derived from `shutdown_timeout` rather than configured
+    /// separately, so there is one knob and this stays comfortably inside it,
+    /// leaving the outer timeout as a backstop instead of the mechanism.
+    drain_timeout: Duration,
 }
 
 impl TaskManager {
     /// pass a shutdown notifier to the task. The task must shutdown upon receiving a signal
+    /// Pass a shutdown notifier, and the window the task may spend draining,
+    /// to a task that handles its own shutdown. The task must stop upon
+    /// receiving the signal.
     pub fn spawn_with_shutdown_notify<F, Fut>(&mut self, f: F)
     where
-        F: FnOnce(Arc<Notify>) -> Fut,
+        F: FnOnce(Arc<Notify>, Duration) -> Fut,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
-        let fut = f(self.shutdown.clone());
+        let fut = f(self.shutdown.clone(), self.drain_timeout);
         self.join_set.spawn(fut);
     }
 
@@ -244,10 +252,11 @@ impl TaskManager {
         });
     }
 
-    fn new() -> Self {
+    fn new(shutdown_timeout: Duration) -> Self {
         Self {
             join_set: JoinSet::new(),
             shutdown: Arc::new(Notify::new()),
+            drain_timeout: shutdown_timeout / 2,
         }
     }
 
@@ -301,7 +310,7 @@ where
             auth_key,
         }) = self.admin_api_config
         {
-            task_manager.spawn_with_shutdown_notify(|shutdown| {
+            task_manager.spawn_with_shutdown_notify(|shutdown, drain_timeout| {
                 http::admin::run(
                     acceptor,
                     user_http_service,
@@ -309,10 +318,48 @@ where
                     connector,
                     disable_metrics,
                     shutdown,
+                    drain_timeout,
                     auth_key.map(Into::into),
                     self.set_log_level.take(),
                 )
             });
+        }
+    }
+}
+
+/// Run a hyper server, bounding how long it may spend draining.
+///
+/// `with_graceful_shutdown` stops accepting new connections when it is
+/// signalled and then waits for the in-flight ones, with no deadline. A client
+/// that holds a connection open therefore blocks shutdown for as long as it
+/// likes, and a server cannot make its own shutdown conditional on clients
+/// letting go: that is the shutdown hang. Once `drain` has elapsed the
+/// remaining connections are dropped and the server stops.
+///
+/// `server` must already have been given a graceful-shutdown future driven by
+/// the same `shutdown`, so that it stops accepting at the same moment the drain
+/// window opens.
+pub(crate) async fn serve_with_bounded_drain<F, E>(
+    server: F,
+    shutdown: Arc<Notify>,
+    drain: Duration,
+) -> Result<(), E>
+where
+    F: Future<Output = Result<(), E>>,
+{
+    tokio::pin!(server);
+    tokio::select! {
+        res = &mut server => res,
+        _ = shutdown.notified() => {
+            match tokio::time::timeout(drain, &mut server).await {
+                Ok(res) => res,
+                Err(_) => {
+                    tracing::warn!(
+                        "shutdown: dropping connections still in flight after {drain:?}"
+                    );
+                    Ok(())
+                }
+            }
         }
     }
 }
@@ -534,7 +581,7 @@ where
 
     pub async fn start(mut self) -> anyhow::Result<()> {
         static INIT: std::sync::Once = std::sync::Once::new();
-        let mut task_manager = TaskManager::new();
+        let mut task_manager = TaskManager::new(self.shutdown_timeout);
 
         if self.enable_deadlock_monitor {
             install_deadlock_monitor();

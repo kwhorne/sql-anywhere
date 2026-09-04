@@ -11,6 +11,8 @@
 //! Contracts: `docs/contracts/QUEUE_CONTRACT.md`, `CACHE_CONTRACT.md`,
 //! `PUBSUB_CONTRACT.md`.
 
+use std::sync::LazyLock;
+
 use sqlanywhere::{params, params::IntoParams, Builder, Connection};
 
 async fn conn() -> Connection {
@@ -62,23 +64,87 @@ const QUEUE_SCHEMA: &[&str] = &[
        failed_at INTEGER NOT NULL DEFAULT (unixepoch()))",
 ];
 
-const ENQUEUE: &str = "INSERT INTO askr_jobs (queue, payload, priority, available_at, max_attempts)
-     VALUES (?1, ?2, ?3, unixepoch() + ?4, ?5) RETURNING id";
+const QUEUE_CONTRACT: &str = include_str!("../../docs/contracts/QUEUE_CONTRACT.md");
+const CACHE_CONTRACT: &str = include_str!("../../docs/contracts/CACHE_CONTRACT.md");
+const PUBSUB_CONTRACT: &str = include_str!("../../docs/contracts/PUBSUB_CONTRACT.md");
 
-const CLAIM: &str = "UPDATE askr_jobs
-     SET reserved_until = unixepoch() + ?2, attempts = attempts + 1
-     WHERE id = (
-       SELECT id FROM askr_jobs
-       WHERE queue = ?1
-         AND available_at <= unixepoch()
-         AND (reserved_until IS NULL OR reserved_until <= unixepoch())
-       ORDER BY priority DESC, available_at, id
-       LIMIT 1)
-     RETURNING id, payload, attempts, max_attempts";
+/// Take the SQL a contract publishes under `heading`, and bind its named
+/// parameters positionally in `order`.
+///
+/// This test is the thing that lets the contracts be called executable specs, so
+/// it should execute what the documents say rather than a copy of it. The claim
+/// in particular is a subtle atomic `UPDATE` that every consumer has to
+/// reproduce exactly; keeping a second copy here meant the contract and its
+/// proof could drift apart in silence, and then a green test would say nothing
+/// about what the document promises.
+///
+/// It fails loudly rather than quietly running the wrong thing: a missing
+/// heading, a missing SQL block, a parameter the caller did not list, or a
+/// listed parameter the SQL does not use.
+fn contract_sql(contract: &str, heading: &str, order: &[&str]) -> String {
+    let start = contract
+        .find(&format!("### {heading}"))
+        .unwrap_or_else(|| panic!("no heading {heading:?} in the contract"));
+    let body = &contract[start..];
+    let open = body
+        .find("```sql")
+        .unwrap_or_else(|| panic!("no sql block under {heading:?}"));
+    let rest = &body[open + "```sql".len()..];
+    let close = rest
+        .find("```")
+        .unwrap_or_else(|| panic!("unterminated sql block under {heading:?}"));
+    let mut sql = rest[..close].trim().trim_end_matches(';').to_string();
+
+    // Longest first, so one parameter name cannot clobber another it prefixes.
+    let mut binds: Vec<(String, String)> = order
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (format!(":{name}"), format!("?{}", i + 1)))
+        .collect();
+    binds.sort_by_key(|(placeholder, _)| std::cmp::Reverse(placeholder.len()));
+
+    for (placeholder, positional) in &binds {
+        assert!(
+            sql.contains(placeholder.as_str()),
+            "{heading:?} does not use {placeholder}, but the test binds it"
+        );
+        sql = sql.replace(placeholder.as_str(), positional);
+    }
+
+    let unbound: Vec<String> = sql
+        .split(':')
+        .skip(1)
+        .map(|tail| {
+            tail.chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect::<String>()
+        })
+        .filter(|name| !name.is_empty())
+        .collect();
+    assert!(
+        unbound.is_empty(),
+        "{heading:?} uses named parameters the test does not bind: {unbound:?}"
+    );
+    sql
+}
+
+static ENQUEUE: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        QUEUE_CONTRACT,
+        "Enqueue",
+        &["queue", "payload", "priority", "delay", "max_attempts"],
+    )
+});
+
+static CLAIM: LazyLock<String> =
+    LazyLock::new(|| contract_sql(QUEUE_CONTRACT, "Claim (pop)", &["queue", "visibility"]));
 
 /// Claim and return (id, payload, attempts, max_attempts).
 async fn claim(conn: &Connection, queue: &str, visibility: i64) -> Option<(i64, String, i64, i64)> {
-    let mut rows = conn.query(CLAIM, params![queue, visibility]).await.unwrap();
+    let mut rows = conn
+        .query(&CLAIM, params![queue, visibility])
+        .await
+        .unwrap();
     rows.next().await.unwrap().map(|r| {
         (
             r.get::<i64>(0).unwrap(),
@@ -97,16 +163,16 @@ async fn queue_contract_v1() {
     }
 
     // Enqueue returns the new id.
-    let id_a = one_i64(&conn, ENQUEUE, params!["default", "A", 0, 0, 25])
+    let id_a = one_i64(&conn, &ENQUEUE, params!["default", "A", 0, 0, 25])
         .await
         .unwrap();
-    let id_b = one_i64(&conn, ENQUEUE, params!["default", "B", 0, 0, 25])
+    let id_b = one_i64(&conn, &ENQUEUE, params!["default", "B", 0, 0, 25])
         .await
         .unwrap();
     assert!(id_b > id_a);
 
     // Priority beats FIFO: a higher-priority job jumps ahead.
-    let id_hi = one_i64(&conn, ENQUEUE, params!["default", "HI", 10, 0, 25])
+    let id_hi = one_i64(&conn, &ENQUEUE, params!["default", "HI", 10, 0, 25])
         .await
         .unwrap();
     let first = claim(&conn, "default", 30).await.unwrap();
@@ -162,15 +228,20 @@ async fn queue_contract_v1() {
     assert_eq!(after_release.0, c2.0);
 
     // Delayed job is not claimable until its time comes.
-    let _delayed = one_i64(&conn, ENQUEUE, params!["default", "LATER", 0, 3600, 25])
+    let delayed = one_i64(&conn, &ENQUEUE, params!["default", "LATER", 0, 3600, 25])
         .await
         .unwrap();
-    // (c2 was just re-claimed; reserve the rest so only the delayed job could match)
-    while claim(&conn, "default", 30).await.is_some() {}
-    assert!(
-        claim(&conn, "default", 30).await.is_none(),
-        "future available_at is not ready"
-    );
+    // Drain what is ready and check the delayed job is never among it. Asserting
+    // only that nothing is claimable at the end cannot tell the two cases apart:
+    // a claim that ignored available_at would simply take the delayed job during
+    // the drain, leaving the queue empty either way. Mutating the contract to
+    // drop the `available_at <= unixepoch()` guard used to leave this test green.
+    while let Some(claimed) = claim(&conn, "default", 30).await {
+        assert_ne!(
+            claimed.0, delayed,
+            "claimed a job whose available_at is still in the future"
+        );
+    }
 
     // Dead-letter: move an exhausted job into askr_failed_jobs and delete it.
     exec(
@@ -243,18 +314,28 @@ const CACHE_SCHEMA: &[&str] = &[
        tag TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (tag, key))",
 ];
 
-const SET: &str = "INSERT INTO askr_cache (key, value, expires_at) VALUES (?1, ?2, ?3)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at";
-const GET: &str = "SELECT value FROM askr_cache_live WHERE key = ?1";
-const ADD: &str =
-    "INSERT INTO askr_cache (key, value, expires_at) VALUES (?1, ?2, unixepoch() + ?3)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at
-       WHERE askr_cache.expires_at IS NOT NULL AND askr_cache.expires_at <= unixepoch()
-     RETURNING (value = ?2)";
-const INCR: &str = "INSERT INTO askr_cache (key, value, expires_at) VALUES (?1, ?2, NULL)
-     ON CONFLICT(key) DO UPDATE SET value = CAST(
-       CASE WHEN expires_at IS NOT NULL AND expires_at <= unixepoch() THEN 0 ELSE value END AS INTEGER) + ?2
-     RETURNING CAST(value AS INTEGER)";
+static SET: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        CACHE_CONTRACT,
+        "Set (put, with optional TTL)",
+        &["key", "value", "expires_at"],
+    )
+});
+static GET: LazyLock<String> = LazyLock::new(|| contract_sql(CACHE_CONTRACT, "Get", &["key"]));
+static ADD: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        CACHE_CONTRACT,
+        "Atomic add (SETNX — the basis for `Cache::lock()`)",
+        &["key", "owner", "ttl"],
+    )
+});
+static INCR: LazyLock<String> = LazyLock::new(|| {
+    contract_sql(
+        CACHE_CONTRACT,
+        "Atomic increment / decrement (counters, rate limiting)",
+        &["key", "delta", "expires_at"],
+    )
+});
 
 #[tokio::test]
 async fn cache_contract_v1() {
@@ -264,37 +345,37 @@ async fn cache_contract_v1() {
     }
 
     // Set + get with TTL; forever = NULL expiry.
-    exec(&conn, SET, params!["k1", "v1", 9_999_999_999i64]).await;
-    exec(&conn, SET, params!["perm", "v2", None::<i64>]).await;
+    exec(&conn, &SET, params!["k1", "v1", 9_999_999_999i64]).await;
+    exec(&conn, &SET, params!["perm", "v2", None::<i64>]).await;
     assert_eq!(
-        one_str(&conn, GET, params!["k1"]).await.as_deref(),
+        one_str(&conn, &GET, params!["k1"]).await.as_deref(),
         Some("v1")
     );
     assert_eq!(
-        one_str(&conn, GET, params!["perm"]).await.as_deref(),
+        one_str(&conn, &GET, params!["perm"]).await.as_deref(),
         Some("v2")
     );
 
     // Expired entry is a miss via the live view (before any sweep).
-    exec(&conn, SET, params!["gone", "x", 1i64]).await; // expires_at in the distant past
+    exec(&conn, &SET, params!["gone", "x", 1i64]).await; // expires_at in the distant past
     assert_eq!(
-        one_str(&conn, GET, params!["gone"]).await,
+        one_str(&conn, &GET, params!["gone"]).await,
         None,
         "expired -> miss"
     );
 
     // Atomic increment: missing -> delta, then accumulates.
-    assert_eq!(one_i64(&conn, INCR, params!["ctr", 5]).await, Some(5));
-    assert_eq!(one_i64(&conn, INCR, params!["ctr", 3]).await, Some(8));
+    assert_eq!(one_i64(&conn, &INCR, params!["ctr", 5]).await, Some(5));
+    assert_eq!(one_i64(&conn, &INCR, params!["ctr", 3]).await, Some(8));
 
     // Atomic add (SETNX): fresh acquires, held does not, expired can be stolen.
     assert_eq!(
-        one_i64(&conn, ADD, params!["lock", "owA", 30]).await,
+        one_i64(&conn, &ADD, params!["lock", "owA", 30]).await,
         Some(1),
         "fresh lock acquired"
     );
     assert_eq!(
-        one_i64(&conn, ADD, params!["lock", "owB", 30]).await,
+        one_i64(&conn, &ADD, params!["lock", "owB", 30]).await,
         None,
         "held lock not acquired"
     );
@@ -305,7 +386,7 @@ async fn cache_contract_v1() {
     )
     .await;
     assert_eq!(
-        one_i64(&conn, ADD, params!["lock", "owB", 30]).await,
+        one_i64(&conn, &ADD, params!["lock", "owB", 30]).await,
         Some(1),
         "expired lock stolen"
     );
@@ -336,8 +417,8 @@ async fn cache_contract_v1() {
     );
 
     // Tags: invalidate a whole tag.
-    exec(&conn, SET, params!["p:1", "a", None::<i64>]).await;
-    exec(&conn, SET, params!["p:2", "b", None::<i64>]).await;
+    exec(&conn, &SET, params!["p:1", "a", None::<i64>]).await;
+    exec(&conn, &SET, params!["p:2", "b", None::<i64>]).await;
     exec(
         &conn,
         "INSERT OR IGNORE INTO askr_cache_tags (tag, key) VALUES ('posts','p:1'),('posts','p:2')",
@@ -357,7 +438,7 @@ async fn cache_contract_v1() {
     )
     .await;
     assert_eq!(
-        one_str(&conn, GET, params!["p:1"]).await,
+        one_str(&conn, &GET, params!["p:1"]).await,
         None,
         "tag invalidation removed the key"
     );
@@ -390,7 +471,8 @@ const PUBSUB_SCHEMA: &[&str] = &[
        updated_at INTEGER NOT NULL DEFAULT (unixepoch()))",
 ];
 
-const PUBLISH: &str = "INSERT INTO askr_events (channel, payload) VALUES (?1, ?2) RETURNING seq";
+static PUBLISH: LazyLock<String> =
+    LazyLock::new(|| contract_sql(PUBSUB_CONTRACT, "Publish", &["channel", "payload"]));
 
 #[tokio::test]
 async fn pubsub_contract_v1() {
@@ -400,13 +482,13 @@ async fn pubsub_contract_v1() {
     }
 
     // Publish returns a monotonic seq.
-    let s1 = one_i64(&conn, PUBLISH, params!["orders", "o1"])
+    let s1 = one_i64(&conn, &PUBLISH, params!["orders", "o1"])
         .await
         .unwrap();
-    let s2 = one_i64(&conn, PUBLISH, params!["orders", "o2"])
+    let s2 = one_i64(&conn, &PUBLISH, params!["orders", "o2"])
         .await
         .unwrap();
-    let _s3 = one_i64(&conn, PUBLISH, params!["audit", "login"])
+    let _s3 = one_i64(&conn, &PUBLISH, params!["audit", "login"])
         .await
         .unwrap();
     assert!(s2 > s1, "seq is monotonic");
@@ -427,7 +509,7 @@ async fn pubsub_contract_v1() {
     assert_eq!(got, vec!["o1", "o2"], "only this channel, in order");
 
     // Publish more; tailing past the last seen seq yields only the new message.
-    let s4 = one_i64(&conn, PUBLISH, params!["orders", "o3"])
+    let s4 = one_i64(&conn, &PUBLISH, params!["orders", "o3"])
         .await
         .unwrap();
     let mut rows = tail(s2).await.unwrap();

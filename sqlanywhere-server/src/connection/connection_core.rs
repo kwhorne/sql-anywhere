@@ -406,8 +406,13 @@ mod test {
     /// `ConnectionManager::acquire` returns it on purpose while a checkpoint
     /// holds the slot, so that writers cannot starve the checkpointer, and
     /// SQLite's own `begin_write_txn` returns it for the same underlying reason.
-    /// Nothing registers a busy handler on these connections, so retrying is the
-    /// caller's job, exactly as it is for a real client.
+    ///
+    /// These connections do get a busy timeout: `sqlanywhere_sys::Connection::open`
+    /// sets it to 5s. It does not cover this path, though, because the error is
+    /// raised by the virtual WAL wrapper rather than by SQLite taking a lock, and
+    /// the observed behaviour is that it reaches the caller unretried. So
+    /// retrying is the caller's job here, as it is for a real client, which is
+    /// handed the same error through Hrana.
     fn is_busy(err: &crate::Error) -> bool {
         let inner = match err {
             crate::Error::RusqliteError(e) => e,

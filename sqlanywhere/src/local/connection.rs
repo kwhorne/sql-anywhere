@@ -105,9 +105,26 @@ impl Connection {
     }
 
     /// Disconnect from the database.
+    ///
+    /// Idempotent. It has to be: this is public API, and it is also reached
+    /// twice on the way down for every connection. `SqlanywhereConnection`'s
+    /// `Drop` calls it, and then the `Connection` field it just called it on is
+    /// itself dropped, whose `Drop` calls it again on the same value. The
+    /// `drop_ref` count is unchanged between those two calls, so both saw a
+    /// refcount of one and both closed the same handle. SQLite reported the
+    /// second one as `SQLITE_MISUSE`, "API call with invalid database
+    /// connection pointer".
+    ///
+    /// Clearing the handle is what makes the second call a no-op. The refcount
+    /// guard alone cannot do it, because it answers "is anyone else still using
+    /// this connection", not "have I already closed it".
     pub fn disconnect(&mut self) {
+        if self.raw.is_null() {
+            return;
+        }
         if Arc::get_mut(&mut self.drop_ref).is_some() {
             unsafe { sqlanywhere_sys::ffi::sqlite3_close_v2(self.raw) };
+            self.raw = std::ptr::null_mut();
         }
     }
 
@@ -817,6 +834,40 @@ mod tests {
         params::Params,
         OpenFlags,
     };
+
+    /// Regression: closing happens once, however many times we ask.
+    ///
+    /// `SqlanywhereConnection::drop` calls `disconnect()`, and then the
+    /// `Connection` it called it on is itself dropped, whose `Drop` calls
+    /// `disconnect()` again on the same value. The `drop_ref` count is identical
+    /// at both calls, so both concluded they were the last owner and both closed
+    /// the same handle. SQLite reported the second as `SQLITE_MISUSE`, and it
+    /// showed up in the embedded-replica tests as "API call with invalid
+    /// database connection pointer".
+    #[test]
+    fn disconnect_closes_once() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("local.db");
+        let db = Database::new(path.to_str().unwrap().to_string(), OpenFlags::default());
+        let mut conn = Connection::connect(&db).unwrap();
+        conn.execute("CREATE TABLE t(x)", Params::None).unwrap();
+
+        assert!(!conn.raw.is_null(), "a live connection holds a handle");
+
+        conn.disconnect();
+        assert!(
+            conn.raw.is_null(),
+            "disconnect must clear the handle it closed, or the next caller \
+             closes freed memory"
+        );
+
+        // This is the call `Drop` makes right afterwards. Before the fix it
+        // closed the same handle a second time.
+        conn.disconnect();
+        assert!(conn.raw.is_null());
+
+        // And the implicit drop that follows must be a no-op too.
+    }
 
     #[tokio::test]
     pub async fn test_kek() {

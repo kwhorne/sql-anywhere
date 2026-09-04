@@ -402,6 +402,73 @@ mod test {
 
     use super::*;
 
+    /// Opening a write transaction can legitimately come back SQLITE_BUSY.
+    /// `ConnectionManager::acquire` returns it on purpose while a checkpoint
+    /// holds the slot, so that writers cannot starve the checkpointer, and
+    /// SQLite's own `begin_write_txn` returns it for the same underlying reason.
+    ///
+    /// These connections do get a busy timeout: `sqlanywhere_sys::Connection::open`
+    /// sets it to 5s. It does not cover this path, though, because the error is
+    /// raised by the virtual WAL wrapper rather than by SQLite taking a lock, and
+    /// the observed behaviour is that it reaches the caller unretried. So
+    /// retrying is the caller's job here, as it is for a real client, which is
+    /// handed the same error through Hrana.
+    fn is_busy(err: &crate::Error) -> bool {
+        let inner = match err {
+            crate::Error::RusqliteError(e) => e,
+            crate::Error::RusqliteErrorExtended(e, _) => e,
+            _ => return false,
+        };
+        matches!(
+            inner,
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::DatabaseBusy,
+                    ..
+                },
+                _
+            )
+        )
+    }
+
+    /// Pins the shape of the error the write path actually produces. This is the
+    /// part that fails silently if it drifts: a mismatch here turns the retry in
+    /// `test_many_concurrent` back into a panic, and the flake comes back.
+    #[test]
+    fn busy_errors_are_recognised() {
+        fn busy(extended: i32) -> rusqlite::Error {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::DatabaseBusy,
+                    extended_code: extended,
+                },
+                Some("database is locked".to_string()),
+            )
+        }
+
+        // Exactly what CI reported: the checkpoint-starvation guard in
+        // ConnectionManager::acquire, and SQLite's own write lock, both surface
+        // as plain SQLITE_BUSY (5) wrapped in RusqliteErrorExtended.
+        assert!(is_busy(&crate::Error::RusqliteErrorExtended(busy(5), 5)));
+        // The stale-read path uses extended code 517 and is equally transient.
+        assert!(is_busy(&crate::Error::RusqliteErrorExtended(
+            busy(517),
+            517
+        )));
+        assert!(is_busy(&crate::Error::RusqliteError(busy(5))));
+
+        // Anything else must still fail the test rather than spin.
+        assert!(!is_busy(&crate::Error::RusqliteError(
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::ConstraintViolation,
+                    extended_code: 1555,
+                },
+                None,
+            )
+        )));
+    }
+
     fn setup_test_conn() -> Arc<Mutex<CoreConnection<Sqlite3Wal>>> {
         let conn = CoreConnection {
             conn: sqlanywhere_sys::Connection::test(),
@@ -668,16 +735,33 @@ mod test {
             let ctx = ctx.clone();
             async move {
                 for _ in 0..1000 {
-                    let conn = maker.make_connection().await.unwrap();
-                    let pgm = Program::seq(&["BEGIN IMMEDIATE", "INSERT INTO test VALUES (42)"]);
-                    let res = conn
-                        .execute_program(pgm, ctx.clone(), TestBuilder::default(), None)
-                        .await
-                        .unwrap()
-                        .into_ret();
-                    for result in res {
-                        result.unwrap();
-                    }
+                    // Bounded so a genuine deadlock still fails the test rather
+                    // than spinning until the outer timeout.
+                    const MAX_BUSY_RETRIES: usize = 100;
+                    let mut busy_retries = 0;
+                    let conn = loop {
+                        let conn = maker.make_connection().await.unwrap();
+                        let pgm =
+                            Program::seq(&["BEGIN IMMEDIATE", "INSERT INTO test VALUES (42)"]);
+                        let res = conn
+                            .execute_program(pgm, ctx.clone(), TestBuilder::default(), None)
+                            .await
+                            .unwrap()
+                            .into_ret();
+                        if res.iter().any(|r| r.as_ref().err().is_some_and(is_busy)) {
+                            busy_retries += 1;
+                            assert!(
+                                busy_retries < MAX_BUSY_RETRIES,
+                                "still SQLITE_BUSY after {MAX_BUSY_RETRIES} attempts to open a \
+                                 write transaction; that is no longer a transient checkpoint"
+                            );
+                            continue;
+                        }
+                        for result in res {
+                            result.unwrap();
+                        }
+                        break conn;
+                    };
                     // with 99% change, commit the txn
                     if rand::thread_rng().gen_range(0..100) > 1 {
                         let pgm = Program::seq(&["INSERT INTO test VALUES (43)", "COMMIT"]);

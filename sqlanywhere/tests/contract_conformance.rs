@@ -368,6 +368,35 @@ async fn cache_contract_v1() {
     assert_eq!(one_i64(&conn, &INCR, params!["ctr", 5]).await, Some(5));
     assert_eq!(one_i64(&conn, &INCR, params!["ctr", 3]).await, Some(8));
 
+    // An expired counter restarts at zero. The contract says the increment
+    // "treats a missing/expired entry as 0", and that reset is the whole reason
+    // the statement carries a CASE rather than a plain `value + :delta`.
+    // Mutating the reset out of the contract used to leave this test green.
+    exec(
+        &conn,
+        "INSERT INTO askr_cache (key, value, expires_at)
+             VALUES ('expired_ctr', '7', unixepoch() - 1)",
+        (),
+    )
+    .await;
+    assert_eq!(
+        one_i64(&conn, &INCR, params!["expired_ctr", 5]).await,
+        Some(5),
+        "expired counter restarts at zero rather than resuming from 7"
+    );
+
+    // Overwriting a key moves its expiry too, not just its value. The upsert
+    // carries `expires_at = excluded.expires_at` for this; dropping it used to
+    // leave this test green, because nothing here ever overwrote a key with a
+    // different TTL.
+    exec(&conn, &SET, params!["ttl_refresh", "v1", 9_999_999_999i64]).await;
+    exec(&conn, &SET, params!["ttl_refresh", "v2", 1i64]).await;
+    assert_eq!(
+        one_str(&conn, &GET, params!["ttl_refresh"]).await,
+        None,
+        "overwriting with a past expiry must expire the entry"
+    );
+
     // Atomic add (SETNX): fresh acquires, held does not, expired can be stolen.
     assert_eq!(
         one_i64(&conn, &ADD, params!["lock", "owA", 30]).await,
@@ -560,4 +589,101 @@ async fn pubsub_contract_v1() {
         Some(2),
         "trimmed to newest 2"
     );
+}
+
+/// Operations these tests execute straight from the contract documents.
+const COVERED: &[(&str, &str)] = &[
+    ("QUEUE", "Enqueue"),
+    ("QUEUE", "Claim (pop)"),
+    ("CACHE", "Set (put, with optional TTL)"),
+    ("CACHE", "Get"),
+    (
+        "CACHE",
+        "Atomic add (SETNX — the basis for `Cache::lock()`)",
+    ),
+    (
+        "CACHE",
+        "Atomic increment / decrement (counters, rate limiting)",
+    ),
+    ("PUBSUB", "Publish"),
+];
+
+/// Operations a contract publishes that these tests do not execute from the
+/// document. Some are exercised with SQL written here instead, some not at all,
+/// and in neither case can the contract be mutated to check that the test has
+/// teeth. That check is what found two real gaps: an expired counter that was
+/// never verified to restart at zero, and a TTL that was never verified to move
+/// when a key is overwritten.
+///
+/// The list exists so the gap cannot grow quietly. Add an operation to a
+/// contract and this test fails until it is classified; cover one properly and
+/// the line comes out.
+const NOT_YET_COVERED: &[(&str, &str)] = &[
+    ("QUEUE", "Ack (delete on success)"),
+    ("QUEUE", "Release (nack / retry with backoff)"),
+    ("QUEUE", "Renew reservation (long-running jobs / heartbeat)"),
+    ("QUEUE", "Move to dead-letter (max attempts exceeded)"),
+    ("QUEUE", "Backlog (for autoscaling / metrics)"),
+    ("CACHE", "Forget / flush"),
+    ("CACHE", "Tags"),
+    ("CACHE", "Sweep (reclaim expired rows)"),
+    ("PUBSUB", "Subscribe (tail past a cursor)"),
+    ("PUBSUB", "Persist a subscriber cursor (optional)"),
+    ("PUBSUB", "Retention (trim the log)"),
+];
+
+/// Every operation with SQL in a contract is either executed from the document
+/// or listed as a known gap. Neither list may drift from the documents.
+#[test]
+fn every_contract_operation_is_covered_or_listed() {
+    let contracts = [
+        ("QUEUE", QUEUE_CONTRACT),
+        ("CACHE", CACHE_CONTRACT),
+        ("PUBSUB", PUBSUB_CONTRACT),
+    ];
+
+    let mut documented = Vec::new();
+    for (name, body) in contracts {
+        for (i, _) in body.match_indices("\n### ") {
+            let heading = body[i + 5..]
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let start = i + 5;
+            let end = body[start..]
+                .find("\n### ")
+                .map(|o| start + o)
+                .unwrap_or(body.len());
+            if body[start..end].contains("```sql") {
+                documented.push((name, heading));
+            }
+        }
+    }
+
+    for (contract, heading) in &documented {
+        let covered = COVERED.iter().any(|(c, h)| c == contract && h == heading);
+        let listed = NOT_YET_COVERED
+            .iter()
+            .any(|(c, h)| c == contract && h == heading);
+        assert!(
+            covered || listed,
+            "{contract} contract publishes {heading:?}, which is neither executed \
+             from the document nor listed as a known gap"
+        );
+        assert!(
+            !(covered && listed),
+            "{contract} / {heading:?} is in both lists"
+        );
+    }
+
+    for (contract, heading) in COVERED.iter().chain(NOT_YET_COVERED) {
+        assert!(
+            documented
+                .iter()
+                .any(|(c, h)| c == contract && h == heading),
+            "{contract} / {heading:?} is listed here but no longer in the contract"
+        );
+    }
 }

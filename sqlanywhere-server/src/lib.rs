@@ -327,17 +327,30 @@ where
     }
 }
 
-/// Run a hyper server, bounding how long it may spend draining.
+/// Run a hyper server so that it reliably hears the shutdown signal, and cannot
+/// spend forever draining once it has.
 ///
-/// `with_graceful_shutdown` stops accepting new connections when it is
-/// signalled and then waits for the in-flight ones, with no deadline. A client
-/// that holds a connection open therefore blocks shutdown for as long as it
-/// likes, and a server cannot make its own shutdown conditional on clients
-/// letting go: that is the shutdown hang. Once `drain` has elapsed the
-/// remaining connections are dropped and the server stops.
+/// The first half is what actually fixed the shutdown hang, and it is easy to
+/// undo by accident, so: `Notify::notify_waiters` wakes only the waiters that
+/// are registered at the instant it is called, and a `Notified` future does not
+/// register until it is first polled. Handing `shutdown.notified()` straight to
+/// `with_graceful_shutdown` leaves that first poll up to hyper, which does not
+/// necessarily happen before shutdown is signalled on an idle server. The signal
+/// was then lost for good, the server ran on, and `TaskManager::shutdown` waited
+/// on a task that would never finish. The `select!` below polls `notified()` as
+/// soon as this task runs, so a waiter always exists in time.
+///
+/// Keep that property if you rewrite this. Re-arming the notification in
+/// `TaskManager::shutdown` does not substitute for it: a future that is never
+/// polled never registers, however many times you signal.
+///
+/// The `drain` deadline is the second half, and it is a backstop rather than the
+/// fix. A server cannot make its own shutdown conditional on clients letting go
+/// of connections, so after `drain` the remaining ones are dropped. It has not
+/// been observed to fire in the test suite.
 ///
 /// `server` must already have been given a graceful-shutdown future driven by
-/// the same `shutdown`, so that it stops accepting at the same moment the drain
+/// the same `shutdown`, so that it stops accepting at the moment the drain
 /// window opens.
 pub(crate) async fn serve_with_bounded_drain<F, E>(
     server: F,
@@ -1058,5 +1071,50 @@ fn setup_sqlite_alloc() {
 
     unsafe {
         sqlite3_config(SQLITE_CONFIG_MALLOC, &mem as *const _);
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use tokio::sync::Notify;
+
+    use super::serve_with_bounded_drain;
+
+    /// Guards the property that fixed the shutdown hang.
+    ///
+    /// A server future that never completes on its own must still stop once
+    /// shutdown is signalled. That only works because `serve_with_bounded_drain`
+    /// polls `notified()` itself, registering a waiter, rather than leaving that
+    /// first poll to hyper. Remove the `select!` branch and this hangs, which is
+    /// exactly the failure it replaced.
+    #[tokio::test]
+    async fn stops_once_shutdown_is_signalled() {
+        let shutdown = Arc::new(Notify::new());
+        let server = std::future::pending::<Result<(), std::io::Error>>();
+
+        let signal = shutdown.clone();
+        let handle = tokio::spawn(async move {
+            serve_with_bounded_drain(server, signal, Duration::from_millis(50)).await
+        });
+
+        // Let the task run far enough to register as a waiter. This is the
+        // window the fix narrows: `notify_waiters` reaches only waiters that
+        // already exist.
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        shutdown.notify_waiters();
+
+        let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
+        assert!(
+            result.is_ok(),
+            "did not stop within 5s of being signalled; the shutdown signal was lost"
+        );
+        assert!(
+            result.unwrap().unwrap().is_ok(),
+            "dropping connections at the drain deadline is not an error"
+        );
     }
 }

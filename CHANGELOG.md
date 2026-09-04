@@ -5,7 +5,15 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.1] - 2026-09-04
+
+Three real bugs found by chasing tests that looked like noise. Every
+embedded-replica connection was being closed twice, the server library killed
+the host process on a failed shutdown, and shutdown itself could hang
+indefinitely. None of them were visible as failures; all three were sitting in
+test output nobody read because the tests around them were usually green.
+
+No API or file-format changes.
 
 ### Changed
 
@@ -23,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   four on slow storage before, 40 out of 40 clean after, and the full server
   suite is green across repeated runs.
 
+
+- **The server library no longer calls `std::process::exit` on a failed
+  shutdown.** `Server::start` killed the host process when graceful shutdown
+  failed or timed out. That is wrong for a library: the integration tests run
+  the server in-process, and so does anything embedding sqld, so a shutdown
+  problem took the whole host down with it and left nothing to diagnose. It now
+  returns an error. The `sqld` binary is unaffected, since `main` propagates it
+  and still exits non-zero with the same message.
 
 - **`extension-keygen` no longer writes the private key into the repository.**
   It defaulted the whole key pair to `sqlanywhere-sqlite3/ext/`, so the trust
@@ -403,6 +419,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.6.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.1
 [0.6.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.0
 [0.5.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.1

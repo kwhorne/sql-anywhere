@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "bottomless"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "bottomless-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "async-compression 0.4.11",
@@ -4758,7 +4758,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -4803,7 +4803,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-experimental"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4819,7 +4819,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-ffi"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bindgen",
  "cc",
@@ -4830,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-hrana"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.21.7",
  "bytes",
@@ -4841,7 +4841,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-rusqlite"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bencher",
  "bitflags 2.6.0",
@@ -4865,7 +4865,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-server"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -4966,7 +4966,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-sqlite3-parser"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.6.0",
  "cc",
@@ -4983,7 +4983,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-sys"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "once_cell",
@@ -4995,7 +4995,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-wasm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "js-sys",
  "sqlanywhere",
@@ -5004,7 +5004,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere-wasmtime-bindings"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "wasmtime",
  "wasmtime-wasi",
@@ -5012,7 +5012,7 @@ dependencies = [
 
 [[package]]
 name = "sqlanywhere_replication"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aes",
  "arbitrary",
@@ -6724,7 +6724,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xtask"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "base64 0.21.7",

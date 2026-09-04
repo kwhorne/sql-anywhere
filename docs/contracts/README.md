@@ -14,12 +14,22 @@ documented in `askr/docs/STORAGE_BACKEND.md`.
 
 ## Conformance
 
-These contracts are **executable, CI-verified specs**, not just prose: every
-statement below is exercised against the engine by
+These contracts are **executable, CI-verified specs**, not just prose:
 [`sqlanywhere/tests/contract_conformance.rs`](../../sqlanywhere/tests/contract_conformance.rs)
-(`queue_contract_v1`, `cache_contract_v1`, `pubsub_contract_v1`). The Askr
-runtime therefore builds against a proven contract that cannot silently drift
-from what the substrate actually does.
+(`queue_contract_v1`, `cache_contract_v1`, `pubsub_contract_v1`) reads the SQL
+**out of these documents** and runs it against the engine. Not a copy of it: the
+statements below are the ones executed, so a document and its proof cannot drift
+apart. Edit a statement here and the test either proves the new semantics or
+goes red.
+
+That matters most for the queue's claim, which is a subtle atomic `UPDATE` that
+every consumer has to reproduce exactly. Mutating it here is how the tests get
+checked for teeth: dropping the `reserved_until` guard, the `available_at`
+guard, the priority ordering, or the attempt counter each turns
+`queue_contract_v1` red.
+
+The Askr runtime therefore builds against a proven contract that cannot silently
+drift from what the substrate actually does.
 
 ## Principles
 

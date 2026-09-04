@@ -5,6 +5,30 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The storage contracts are now the source of the SQL their tests run.**
+  `contract_conformance.rs` held its own copy of every contract statement, so
+  "executable spec" meant a test that contained a transcription of the document
+  rather than the document itself. Nothing stopped the two from drifting, and
+  the queue's claim is a subtle atomic `UPDATE` that a consumer has to reproduce
+  exactly. The tests now read the SQL out of `docs/contracts/*.md` and execute
+  it verbatim, so editing a contract either proves the new semantics or turns
+  the test red.
+
+### Fixed
+
+- **The queue contract's delay semantics were not actually verified.** Making
+  the document the source made it possible to check the tests for teeth by
+  mutating the contract, and one mutation slipped through: removing the
+  `available_at <= unixepoch()` guard from the claim, which lets a delayed job
+  be taken before its time, left `queue_contract_v1` green. The test drained the
+  queue and then asserted it was empty, which cannot distinguish "the delayed
+  job was correctly skipped" from "the delayed job was claimed during the
+  drain". It now asserts the delayed job is never among what is claimed.
+
 ## [0.6.1] - 2026-09-04
 
 Three real bugs found by chasing tests that looked like noise. Every

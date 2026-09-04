@@ -771,17 +771,27 @@ where
                     Ok::<_, crate::Error>(())
                 };
 
+                // Report a failed shutdown rather than calling process::exit.
+                // This is a library: `Server::start` is run in-process by the
+                // integration tests and by anything embedding sqld, so exiting
+                // here takes the whole host process down with it. In the tests
+                // that showed up as a run that died with no panic, no assertion
+                // and no test result, which is why it read as an unreproducible
+                // flake. The `sqld` binary propagates this out of `main`, so it
+                // still exits non-zero with the same message.
                 match tokio::time::timeout(shutdown_timeout, shutdown).await {
                     Ok(Ok(())) =>  {
                         tracing::info!("sqld was shutdown gracefully. Bye!");
                     }
                     Ok(Err(e)) => {
                         tracing::error!("failed to shutdown gracefully: {}", e);
-                        std::process::exit(1);
+                        return Err(anyhow::anyhow!("failed to shutdown gracefully: {e}"));
                     },
                     Err(_) => {
                         tracing::error!("shutdown timeout hit, forcefully shutting down");
-                        std::process::exit(1);
+                        return Err(anyhow::anyhow!(
+                            "shutdown did not complete within {shutdown_timeout:?}"
+                        ));
                     },
 
                 }

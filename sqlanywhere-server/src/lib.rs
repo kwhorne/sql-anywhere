@@ -148,7 +148,7 @@ pub struct Server<C = HttpConnector, A = AddrIncoming, D = HttpsConnector<HttpCo
     /// level-triggered and cannot be missed. Signalling this field still works:
     /// `start` bridges it into the token.
     #[deprecated(
-        since = "0.7.0",
+        since = "0.6.2",
         note = "use Server::shutdown_token() and CancellationToken::cancel(); \
                 Notify is edge-triggered and a late listener misses the signal"
     )]

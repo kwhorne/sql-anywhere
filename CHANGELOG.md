@@ -5,7 +5,7 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.2] - 2026-09-05
 
 ### Changed
 
@@ -18,9 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listener that only starts afterwards still sees it. `Server::shutdown_token()`
   is the new initiator. The old field still works: `start` bridges it into the
   token, so existing callers keep the narrow window they have today rather than
-  breaking. `Server` gains a public `shutdown_token` field, which is a breaking
-  change for anyone constructing it by struct literal without
-  `..Default::default()`, so this lands in 0.7.0.
+  breaking. `Server` gains a public `shutdown_token` field. That is a compile-time
+  break for anyone constructing it by struct literal without
+  `..Default::default()`; such callers add the field or the spread.
 
 - **The storage contracts are now the source of the SQL their tests run.**
   `contract_conformance.rs` held its own copy of every contract statement, so
@@ -500,6 +500,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2
 [0.6.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.1
 [0.6.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.0
 [0.5.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.5.2

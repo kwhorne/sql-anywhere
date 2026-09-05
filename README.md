@@ -343,7 +343,7 @@ cd sqlanywhere-sqlite3 && ./sqlanywhere
 ```
 
 ```console
-SQL Anywhere version 0.6.1 (based on SQLite version 3.47.0)
+SQL Anywhere version 0.6.2 (based on SQLite version 3.47.0)
 Enter ".help" for usage hints.
 Connected to a transient in-memory database.
 sqlanywhere>

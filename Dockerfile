@@ -1,11 +1,14 @@
 # build sqld
-FROM rust:slim-bullseye AS chef
-# deb.debian.org is a CDN, and an edge node occasionally serves a Packages
-# index older than the security pool it points at. apt then asks for the exact
-# versions the index names, the pool has already rotated them away, and the
-# build dies on a 404 for a package nobody chose. It moves around: different
-# packages and different stages on each run. Retry with a genuinely fresh index
-# rather than fail a release build on it.
+FROM rust:slim-bookworm AS chef
+# Base images track a supported Debian. bullseye left LTS on 2026-06-30; after
+# that deb.debian.org kept serving its bullseye-security index while the pool
+# dropped the +deb11u packages it names, so every apt-get install died on a
+# 404 that no retry could fix (12 of 13 image builds, 2026-09-04/05).
+#
+# The retry below stays for the transient case it was written for: a CDN edge
+# serving a Packages index a little older than the pool behind it, which
+# comes and goes per stage and per run. A fresh index fixes that; it cannot
+# fix an end-of-life suite, which is what the FROM lines are for.
 RUN ok=0; \
     for attempt in 1 2 3 4 5; do \
         rm -rf /var/lib/apt/lists/*; \
@@ -51,7 +54,7 @@ RUN if [ "$ENABLE_FEATURES" == "" ]; then \
 RUN cargo build -p bottomless-cli --release --locked
 
 # official gosu install instruction (https://github.com/tianon/gosu/blob/master/INSTALL.md)
-FROM debian:bullseye-slim as gosu
+FROM debian:bookworm-slim AS gosu
 ENV GOSU_VERSION 1.17
 RUN set -eux; \
 # save list of currently installed packages for later so we can clean up
@@ -89,7 +92,7 @@ RUN set -eux; \
 	gosu nobody true
 
 # runtime
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 RUN apt update
 
 EXPOSE 5001 8080

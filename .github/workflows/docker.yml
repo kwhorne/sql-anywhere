@@ -2,10 +2,22 @@ name: Docker images
 
 # Builds multi-arch sqld container images (linux/amd64 + linux/arm64) on native
 # runners and publishes a single multi-arch manifest to the GitHub Container
-# Registry. Runs on tags (release images) and on main (a :main image).
+# Registry. Runs on tags (release images) and on main (a :main image), and by
+# hand with a `version` input to publish an existing release's images from a
+# later ref when the tag's own build failed on something the Dockerfile fixed.
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Publish the images of an existing release from this ref, e.g. 0.6.2.
+          Use it when a release tag's own Docker build failed for a reason the
+          Dockerfile has since fixed; the image then carries that tag's source
+          plus the fix. Leave empty for a plain :main / :sha build.
+        required: false
+        default: ""
+        type: string
   push:
     branches: [ "main" ]
     tags:
@@ -100,9 +112,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=semver,pattern={{version}},enable=${{ inputs.version == '' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ inputs.version == '' }}
+            type=semver,pattern={{version}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') || inputs.version != '' }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=,format=short
 

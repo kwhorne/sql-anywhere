@@ -5,6 +5,20 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Docker images build again: base images moved from Debian 11 to 12.**
+  bullseye left LTS on 2026-06-30. deb.debian.org kept serving the
+  bullseye-security index while the pool dropped the `+deb11u` packages it
+  names, so `apt-get install` in every stage died on a 404 that no retry could
+  fix; 12 of the last 13 image builds failed that way, the v0.6.2 release
+  build among them. `rust:slim-bookworm` and `debian:bookworm-slim` now. The
+  workflow gains a `version` input so the images of an already-tagged release
+  can be published from `main` after a Dockerfile-only fix, tagged with that
+  version rather than the branch.
+
 ## [0.6.2] - 2026-09-05
 
 ### Changed

@@ -53,6 +53,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are copied once and listed as untracked rather than silently dropped. See
   [docs/BRANCHES.md](docs/BRANCHES.md); verified by
   `sqlanywhere/tests/branch.rs`, which the cr-sqlite workflow now runs.
+- **Live queries: a result that keeps itself current and says what changed.**
+  `sqlanywhere::live::LiveQuery` runs a `SELECT` once; each `refresh` returns a
+  `Diff` of the rows inserted, updated and deleted, or `None` when the result
+  is the same, and skips the query entirely when nothing was written since,
+  which costs one local pragma. It follows writes on its own connection
+  (`total_changes`, since SQLite leaves `data_version` alone for a
+  connection's own commits), commits by other connections, and the frames an
+  embedded replica pulls in on `sync`. Rows can be keyed so an edit is an
+  update rather than a deletion plus an insertion. Verified against a real
+  primary and embedded replica in the turmoil suite. See
+  [docs/LIVE_QUERIES.md](docs/LIVE_QUERIES.md).
 
 ### Fixed
 

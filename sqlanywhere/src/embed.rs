@@ -81,6 +81,20 @@ pub trait Embedder {
     /// Embed `text` into a raw vector of length [`dims`](Embedder::dims).
     fn embed(&self, text: &str) -> Vec<f32>;
 
+    /// A name for the model, recorded with the vectors it produced.
+    ///
+    /// Vectors from two models live in different spaces, and comparing them
+    /// gives meaningless distances. An [`EmbeddingColumn`] records this name
+    /// and refuses a worker whose embedder reports a different one, so override
+    /// it with something that changes whenever the model does, such as
+    /// `"all-MiniLM-L6-v2"`. The default only names the dimensionality, which
+    /// cannot tell two models of the same size apart.
+    ///
+    /// [`EmbeddingColumn`]: crate::embedding_column::EmbeddingColumn
+    fn model_id(&self) -> String {
+        format!("unnamed-{}d", self.dims())
+    }
+
     /// Embed `text` and format it as a vector literal (e.g. `"[0.13,-0.51,…]"`)
     /// ready to pass to the `vector32` SQL function.
     fn embed_literal(&self, text: &str) -> String {
@@ -134,6 +148,10 @@ impl LexicalEmbedder {
 impl Embedder for LexicalEmbedder {
     fn dims(&self) -> usize {
         self.dims
+    }
+
+    fn model_id(&self) -> String {
+        format!("lexical-fnv1a-{}d", self.dims)
     }
 
     fn embed(&self, text: &str) -> Vec<f32> {

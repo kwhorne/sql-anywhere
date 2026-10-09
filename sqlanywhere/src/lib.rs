@@ -160,6 +160,7 @@ mod connection;
 pub mod contracts;
 mod database;
 mod embed;
+pub mod embedding_column;
 mod load_extension_guard;
 
 pub use embed::{embed, to_vector_literal, Embedder, LexicalEmbedder};

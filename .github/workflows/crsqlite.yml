@@ -19,11 +19,21 @@ on:
       - "sqlanywhere-sqlite3/ext/crr/**"
       - "scripts/build-crsqlite.sh"
       - ".github/workflows/crsqlite.yml"
+      # Code and tests that only run against the extension.
+      - "sqlanywhere/src/branch.rs"
+      - "sqlanywhere/tests/branch.rs"
+      - "sqlanywhere/tests/crdt.rs"
+      - "sqlanywhere/tests/collab_vector.rs"
   pull_request:
     paths:
       - "sqlanywhere-sqlite3/ext/crr/**"
       - "scripts/build-crsqlite.sh"
       - ".github/workflows/crsqlite.yml"
+      # Code and tests that only run against the extension.
+      - "sqlanywhere/src/branch.rs"
+      - "sqlanywhere/tests/branch.rs"
+      - "sqlanywhere/tests/crdt.rs"
+      - "sqlanywhere/tests/collab_vector.rs"
 
 permissions:
   contents: write
@@ -78,8 +88,9 @@ jobs:
           echo "asset=${name}.tar.gz" >> "$GITHUB_OUTPUT"
 
       # Verify the extension works through the sqlanywhere Rust API (load +
-      # crsql_as_crr + changeset merge + conflict resolution). Run once, on the
-      # standard Linux target, to keep the matrix fast.
+      # crsql_as_crr + changeset merge + conflict resolution, and database
+      # branches on top of it). Run once, on the standard Linux target, to keep
+      # the matrix fast.
       - name: Run Rust CRDT integration test
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         env:
@@ -88,6 +99,7 @@ jobs:
           sudo apt-get install -y libclang-dev protobuf-compiler
           cargo test -p sqlanywhere --test crdt
           cargo test -p sqlanywhere --test collab_vector
+          cargo test -p sqlanywhere --test branch
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

@@ -40,6 +40,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [docs/EMBEDDING_COLUMNS.md](docs/EMBEDDING_COLUMNS.md).
 - **`Embedder::model_id`**, with a default, so existing embedders keep
   compiling. `LexicalEmbedder` reports `lexical-fnv1a-<dims>d`.
+- **Database branches (experimental): fork, diff, merge, pull.**
+  `sqlanywhere::branch` forks a database into an empty one, lets the fork be
+  written freely, and merges it back through cr-sqlite, so the parent is never
+  locked and keeps taking writes while the branch exists. `diff` is the review
+  step: every row the branch changed beside the parent's current value, the
+  conflicts a merge would hit, and for a vector column the cosine distance the
+  embedding moved, which a byte diff of two blobs cannot show. `merge` never
+  fails on a conflict and reports which side won each one; merging again sends
+  only what was written since. The use it is shaped for is an AI agent that
+  works on its own branch and is merged after review. Tables that are not CRRs
+  are copied once and listed as untracked rather than silently dropped. See
+  [docs/BRANCHES.md](docs/BRANCHES.md); verified by
+  `sqlanywhere/tests/branch.rs`, which the cr-sqlite workflow now runs.
 
 ### Fixed
 

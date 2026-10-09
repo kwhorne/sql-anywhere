@@ -49,6 +49,7 @@ ordering is per-origin; combine with [CRDT](../CRDT.md) for multi-writer topics.
 ### Publish
 
 ```sql
+-- name: Publish :one
 INSERT INTO askr_events (channel, payload) VALUES (:channel, :payload)
 RETURNING seq;
 ```
@@ -58,6 +59,7 @@ RETURNING seq;
 One channel:
 
 ```sql
+-- name: Subscribe :many
 SELECT seq, payload, created_at
 FROM askr_events
 WHERE channel = :channel AND seq > :cursor
@@ -72,6 +74,7 @@ its cursor to the largest `seq` it has processed.
 ### Persist a subscriber cursor (optional)
 
 ```sql
+-- name: SaveCursor :exec
 INSERT INTO askr_subscribers (name, cursor, updated_at)
 VALUES (:name, :cursor, unixepoch())
 ON CONFLICT(name) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at;
@@ -83,9 +86,11 @@ Keep the log bounded; a subscriber that is further behind than retention loses
 messages (document the window). Trim by age or by size:
 
 ```sql
+-- name: TrimByAge :exec
 -- By age:
 DELETE FROM askr_events WHERE created_at < unixepoch() - :retention_seconds;
 
+-- name: TrimToLast :exec
 -- Or by size (keep the newest N):
 DELETE FROM askr_events
 WHERE seq <= (SELECT max(seq) FROM askr_events) - :keep_last;

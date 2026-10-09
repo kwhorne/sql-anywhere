@@ -41,6 +41,62 @@ being removed from one.
 The Askr runtime therefore builds against a proven contract that cannot silently
 drift from what the substrate actually does.
 
+## Generated API
+
+Every statement in an Operations section carries an annotation in the style of
+[sqlc](https://sqlc.dev): `-- name: Claim :opt` names the operation and says
+what it returns (`:exec` rows changed, `:one` exactly one row, `:opt` zero or
+one, `:many` any number). The annotation is what tells alternatives apart from
+sequences: forget and flush are two operations under one heading, while the
+dead-letter move is one operation of several statements. An operation with
+several statements runs them in one transaction, `IMMEDIATE` when the contract
+spells `BEGIN IMMEDIATE`.
+
+`cargo xtask gen-contracts` compiles the annotated documents and the parameter
+table below into two files:
+
+- [`sqlanywhere/src/contracts.rs`](../../sqlanywhere/src/contracts.rs), the
+  typed Rust API: `sqlanywhere::contracts::queue::claim(&conn, visibility, queue)`
+  and so on, plus each contract's `install` and the statements as constants.
+- [`contracts.json`](./contracts.json), the same operations as data, for
+  generating a client in any other language.
+
+Neither file is edited by hand. `generated_contracts_are_fresh` in `xtask`
+fails CI when a document changes without them being regenerated, so the API is
+always the SQL this page publishes and the conformance tests prove.
+
+## Parameters
+
+One name means one thing in every contract. The generator types each
+parameter from this table, and refuses an annotated statement that uses a name
+missing from it. `NULL` marks a parameter that may be null.
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| `queue` | TEXT | Queue name. |
+| `payload` | BLOB | Opaque job or event body; the substrate never reads it. |
+| `priority` | INTEGER | Higher is claimed first. |
+| `delay` | INTEGER | Seconds before a new job becomes claimable. |
+| `max_attempts` | INTEGER | Claims allowed before the job is dead-lettered. |
+| `visibility` | INTEGER | Seconds a claim reserves a job. |
+| `id` | INTEGER | Job id, as `Enqueue` and `Claim` return it. |
+| `backoff` | INTEGER | Seconds before a released job is claimable again. |
+| `uuid` | TEXT NULL | Caller's id for a failed job. |
+| `exception` | TEXT NULL | Why a job failed. |
+| `key` | TEXT | Cache key. |
+| `value` | BLOB | Cached value. |
+| `expires_at` | INTEGER NULL | Unix seconds the entry expires; null never expires. |
+| `delta` | INTEGER | Amount to add to a counter; negative decrements. |
+| `owner` | TEXT | Lock holder token. |
+| `ttl` | INTEGER | Seconds a lock is held before it may be stolen. |
+| `tag` | TEXT | Cache tag. |
+| `channel` | TEXT | Pub/sub channel. |
+| `cursor` | INTEGER | Last `seq` a subscriber has seen. |
+| `batch` | INTEGER | Most events to return at once. |
+| `name` | TEXT | Durable subscriber name. |
+| `retention_seconds` | INTEGER | Age past which events are trimmed. |
+| `keep_last` | INTEGER | Newest events to keep when trimming by size. |
+
 ## Principles
 
 - **Mirror the L1 semantics.** Askr already ships in-process shared-memory

@@ -67,6 +67,7 @@ atomic under concurrency without an explicit transaction.
 ### Enqueue
 
 ```sql
+-- name: Enqueue :one
 -- delay = 0 for "now"; > 0 for a delayed job.
 INSERT INTO askr_jobs (queue, payload, priority, available_at, max_attempts)
 VALUES (:queue, :payload, :priority, unixepoch() + :delay, :max_attempts)
@@ -81,6 +82,7 @@ Atomically reserve the next ready job for `:visibility` seconds and increment it
 attempt counter. Returns nothing when the queue is empty.
 
 ```sql
+-- name: Claim :opt
 UPDATE askr_jobs
 SET reserved_until = unixepoch() + :visibility,
     attempts       = attempts + 1
@@ -101,6 +103,7 @@ receive the same row because the write serializes on it.
 ### Ack (delete on success)
 
 ```sql
+-- name: Ack :exec
 DELETE FROM askr_jobs WHERE id = :id;
 ```
 
@@ -109,6 +112,7 @@ DELETE FROM askr_jobs WHERE id = :id;
 The runtime computes `:backoff` (see below) and re-arms the job:
 
 ```sql
+-- name: Release :exec
 UPDATE askr_jobs
 SET reserved_until = NULL,
     available_at   = unixepoch() + :backoff
@@ -124,6 +128,7 @@ Extend the visibility window while still processing, so a slow job is not
 redelivered:
 
 ```sql
+-- name: Renew :exec
 UPDATE askr_jobs
 SET reserved_until = unixepoch() + :visibility
 WHERE id = :id AND reserved_until > unixepoch();
@@ -135,6 +140,7 @@ When a claim returns `attempts >= max_attempts`, the runtime records the failure
 and deletes the job — ideally in one transaction:
 
 ```sql
+-- name: DeadLetter :exec
 BEGIN IMMEDIATE;
 INSERT INTO askr_failed_jobs (uuid, queue, payload, exception, attempts)
 SELECT :uuid, queue, payload, :exception, attempts FROM askr_jobs WHERE id = :id;
@@ -148,6 +154,7 @@ Feeds `askr_queue_ready`, `askr_queue_total`, `askr_queue_oldest_seconds`
 (elyra-8):
 
 ```sql
+-- name: Backlog :one
 SELECT
   count(*)                                                          AS total,
   count(*) FILTER (

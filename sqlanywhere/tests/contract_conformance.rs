@@ -140,7 +140,21 @@ fn contract_block(contract: &str, heading: &str, block: usize, order: &[&str]) -
     let close = rest
         .find("```")
         .unwrap_or_else(|| panic!("unterminated sql block under {heading:?}"));
-    let mut sql = rest[..close].trim().trim_end_matches(';').to_string();
+    // Line comments are stripped first, so they cannot hide a statement
+    // boundary, an explanatory `--` note is not sent to the engine, and the
+    // `-- name: Claim :opt` annotations the contract API is generated from are
+    // not mistaken for parameters.
+    let mut sql = rest[..close]
+        .lines()
+        .map(|line| match line.find("--") {
+            Some(i) => &line[..i],
+            None => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .to_string();
 
     // Longest first, so one parameter name cannot clobber another it prefixes.
     let mut binds: Vec<(String, String)> = order
@@ -173,19 +187,7 @@ fn contract_block(contract: &str, heading: &str, block: usize, order: &[&str]) -
         "{heading:?} uses named parameters the test does not bind: {unbound:?}"
     );
 
-    // Line comments are stripped so they cannot hide a statement boundary, and
-    // so an explanatory `--` note in the contract is not sent to the engine.
-    let without_comments: String = sql
-        .lines()
-        .map(|line| match line.find("--") {
-            Some(i) => &line[..i],
-            None => line,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    without_comments
-        .split(';')
+    sql.split(';')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)

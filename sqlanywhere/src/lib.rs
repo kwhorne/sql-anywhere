@@ -162,6 +162,7 @@ pub mod contracts;
 mod database;
 mod embed;
 pub mod embedding_column;
+pub mod live;
 mod load_extension_guard;
 
 pub use embed::{embed, to_vector_literal, Embedder, LexicalEmbedder};

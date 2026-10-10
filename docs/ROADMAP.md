@@ -90,6 +90,14 @@ engine wherever possible.
       [docs/BRANCHES.md](BRANCHES.md); verified (`sqlanywhere/tests/branch.rs`).
       Next: a file-level fork for large databases, and branches of a `sqld`
       namespace over HTTP.
+- [x] **Live queries** — a query result that keeps itself current and returns a
+      row-level diff (inserted / updated / deleted) instead of a fresh result,
+      re-running only when something was written. Follows the connection's own
+      writes, other connections, and embedded replica sync. See
+      [docs/LIVE_QUERIES.md](LIVE_QUERIES.md); verified
+      (`sqlanywhere/tests/live.rs`, and against a real primary in
+      `embedded_replica::live_query_follows_replica_sync`). Next: push diffs
+      from `sqld` to remote clients over Hrana.
 - [ ] **Selective / partial replication** — replicate only rows matching a
       predicate (per-user / per-tenant) instead of the whole database.
       *(high effort)*

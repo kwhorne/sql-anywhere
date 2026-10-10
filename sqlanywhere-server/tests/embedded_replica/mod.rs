@@ -1796,3 +1796,81 @@ fn remote_replica_namespace_header_support() {
 
     sim.run().unwrap();
 }
+
+/// A live query on an embedded replica sees what `sync` pulls from the
+/// primary: frames applied to the replica's file move `data_version` the way
+/// another connection's commit does.
+#[test]
+fn live_query_follows_replica_sync() {
+    use sqlanywhere::live::LiveQuery;
+    use sqlanywhere::Value;
+
+    let mut sim = Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+
+    let tmp_embedded = tempdir().unwrap();
+    let tmp_host = tempdir().unwrap();
+    let tmp_embedded_path = tmp_embedded.path().to_owned();
+    let tmp_host_path = tmp_host.path().to_owned();
+
+    make_primary(&mut sim, tmp_host_path.clone());
+
+    sim.client("client", async move {
+        let client = Client::new();
+        client
+            .post("http://primary:9090/v1/namespaces/foo/create", json!({}))
+            .await?;
+
+        let path = tmp_embedded_path.join("embedded");
+        let db = Database::open_with_remote_sync_connector(
+            path.to_str().unwrap(),
+            "http://foo.primary:8080",
+            "",
+            TurmoilConnector,
+            false,
+            None,
+        )
+        .await?;
+        let conn = db.connect()?;
+
+        conn.execute("CREATE TABLE todo (id INTEGER PRIMARY KEY, title TEXT)", ())
+            .await?;
+        db.sync().await?;
+
+        let mut live = LiveQuery::new(&conn, "SELECT id, title FROM todo ORDER BY id", ())
+            .await?
+            .keyed_by(&[0]);
+        assert!(live.rows().is_empty());
+
+        // Writes go to the primary; the replica has not pulled them yet.
+        conn.execute("INSERT INTO todo VALUES (1, 'from the primary')", ())
+            .await?;
+        assert_eq!(live.refresh().await?, None);
+
+        db.sync().await?;
+        let diff = live.refresh().await?.expect("sync brought a change");
+        assert_eq!(
+            diff.inserted,
+            vec![vec![
+                Value::Integer(1),
+                Value::Text("from the primary".into())
+            ]]
+        );
+
+        conn.execute("UPDATE todo SET title = 'edited' WHERE id = 1", ())
+            .await?;
+        db.sync().await?;
+        let diff = live.refresh().await?.expect("sync brought a change");
+        assert_eq!(diff.updated.len(), 1);
+        assert_eq!(diff.updated[0].1[1], Value::Text("edited".into()));
+
+        // A sync with nothing new leaves the result alone.
+        db.sync().await?;
+        assert_eq!(live.refresh().await?, None);
+
+        Ok(())
+    });
+
+    sim.run().unwrap();
+}

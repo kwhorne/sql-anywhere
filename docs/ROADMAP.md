@@ -83,6 +83,13 @@ engine wherever possible.
       extensions are attached to releases for macOS Apple Silicon and Ubuntu
       Intel/ARM. Next: optional static linking into `sqld`.
       *(experimental; per-platform artifacts shipped)*
+- [x] **Database branches (experimental)** — fork a database, write to the
+      fork freely, review a diff (with how far each embedding moved), and merge
+      it back conflict-free while the parent keeps taking writes; shaped for AI
+      agents that work on their own branch and are merged after review. See
+      [docs/BRANCHES.md](BRANCHES.md); verified (`sqlanywhere/tests/branch.rs`).
+      Next: a file-level fork for large databases, and branches of a `sqld`
+      namespace over HTTP.
 - [ ] **Selective / partial replication** — replicate only rows matching a
       predicate (per-user / per-tenant) instead of the whole database.
       *(high effort)*

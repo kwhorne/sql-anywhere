@@ -156,6 +156,7 @@ pub use errors::Error;
 pub use params::params_from_iter;
 
 mod auth;
+pub mod branch;
 mod connection;
 pub mod contracts;
 mod database;

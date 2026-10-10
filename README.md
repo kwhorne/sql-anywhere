@@ -30,6 +30,9 @@ local file:
   clients can talk to it like they would PostgreSQL or MySQL.
 - **Bottomless storage** — continuously stream the write-ahead log to object
   storage (S3-compatible) for durable, point-in-time-recoverable databases.
+- **Database branches** *(experimental)* — fork a database, let an agent or a
+  migration write to the fork, review the diff, and merge it back conflict-free
+  ([docs](docs/BRANCHES.md)).
 - **At-rest & in-transit encryption**, **offline writes**, and a **pluggable
   virtual WAL** interface.
 

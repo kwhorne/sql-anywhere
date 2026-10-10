@@ -5,7 +5,21 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-10-10
+
+SQL Anywhere's pieces, composed into things they could not do apart, and a
+write-lock hang found behind the last flaky test. A database can be forked,
+diffed and merged back like a branch; a vector column keeps itself in step
+with its text through the durable queue; a query result keeps itself current
+and returns the rows that moved; a namespace can be read as it was at any
+moment in its backup, beside the live one; and the storage contracts compile
+into a typed API. `test_many_concurrent`, which hung on 8 of 12 CI runs, was a
+connection that gave up on the write lock stranding it for every writer after;
+it has run clean on all nine CI runs checked since the fix.
+
+No file-format changes. `Embedder` gains a defaulted `model_id`, and the meta
+store's namespace configuration a new optional field; both are backward
+compatible.
 
 ### Added
 
@@ -603,6 +617,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2
 [0.6.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.1
 [0.6.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.0

@@ -48,9 +48,9 @@ the write commits at the speed of an insert.
 
 **The queue is the queue contract.** Jobs go into `askr_jobs` on the queue
 `sqlanywhere.embed:<table>.<column>`, claimed, acked, released and
-dead-lettered with the statements of the
-[queue contract](contracts/QUEUE_CONTRACT.md), word for word. A unit test
-compares them against the document, so the two cannot drift. That makes the
+dead-lettered through `sqlanywhere::contracts::queue`, the API compiled from
+the [queue contract](contracts/QUEUE_CONTRACT.md), so the statements are the
+contract's own and cannot drift from it. That makes the
 backlog durable, replicated, and visible to whatever already watches queue
 depth, and a crashed worker's job comes back when its reservation lapses.
 

@@ -38,84 +38,14 @@
 //! # }
 //! ```
 
-use crate::{named_params, params, Connection, Embedder, Error, Result, Value};
+use crate::contracts::queue;
+use crate::{params, Connection, Embedder, Error, Result, Value};
 
 /// The registry of installed embedding columns.
 const REGISTRY: &str = "sqlanywhere_embedding_columns";
 
 /// How long a claimed job stays reserved before another worker may take it.
 const VISIBILITY_SECONDS: i64 = 300;
-
-/// Queue contract v1 schema, verbatim.
-const QUEUE_SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS askr_jobs (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  queue          TEXT    NOT NULL DEFAULT 'default',
-  payload        BLOB    NOT NULL,
-  priority       INTEGER NOT NULL DEFAULT 0,
-  available_at   INTEGER NOT NULL,
-  reserved_until INTEGER,
-  attempts       INTEGER NOT NULL DEFAULT 0,
-  max_attempts   INTEGER NOT NULL DEFAULT 25,
-  created_at     INTEGER NOT NULL DEFAULT (unixepoch())
-)",
-    "CREATE INDEX IF NOT EXISTS askr_jobs_claim
-  ON askr_jobs (queue, reserved_until, priority DESC, available_at, id)",
-    "CREATE TABLE IF NOT EXISTS askr_failed_jobs (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  uuid       TEXT,
-  queue      TEXT    NOT NULL,
-  payload    BLOB    NOT NULL,
-  exception  TEXT,
-  attempts   INTEGER NOT NULL,
-  failed_at  INTEGER NOT NULL DEFAULT (unixepoch())
-)",
-];
-
-/// Queue contract v1, "Claim (pop)", verbatim.
-const CLAIM: &str = "UPDATE askr_jobs
-SET reserved_until = unixepoch() + :visibility,
-    attempts       = attempts + 1
-WHERE id = (
-  SELECT id FROM askr_jobs
-  WHERE queue = :queue
-    AND available_at <= unixepoch()
-    AND (reserved_until IS NULL OR reserved_until <= unixepoch())
-  ORDER BY priority DESC, available_at, id
-  LIMIT 1
-)
-RETURNING id, payload, attempts, max_attempts";
-
-/// Queue contract v1, "Ack", verbatim.
-const ACK: &str = "DELETE FROM askr_jobs WHERE id = :id";
-
-/// Queue contract v1, "Release", verbatim.
-const RELEASE: &str = "UPDATE askr_jobs
-SET reserved_until = NULL,
-    available_at   = unixepoch() + :backoff
-WHERE id = :id";
-
-/// Queue contract v1, "Move to dead-letter", the two statements between
-/// `BEGIN IMMEDIATE` and `COMMIT`, verbatim.
-const DEAD_LETTER: &[&str] = &[
-    "INSERT INTO askr_failed_jobs (uuid, queue, payload, exception, attempts)
-SELECT :uuid, queue, payload, :exception, attempts FROM askr_jobs WHERE id = :id",
-    "DELETE FROM askr_jobs WHERE id = :id",
-];
-
-/// Queue contract v1, "Backlog", verbatim.
-const BACKLOG: &str = "SELECT
-  count(*)                                                          AS total,
-  count(*) FILTER (
-    WHERE available_at <= unixepoch()
-      AND (reserved_until IS NULL OR reserved_until <= unixepoch())
-  )                                                                 AS ready,
-  coalesce(unixepoch() - min(available_at) FILTER (
-    WHERE available_at <= unixepoch()
-      AND (reserved_until IS NULL OR reserved_until <= unixepoch())
-  ), 0)                                                             AS oldest_seconds
-FROM askr_jobs
-WHERE queue = :queue";
 
 /// A vector column kept in step with a text column.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,9 +125,7 @@ impl EmbeddingColumn {
     ) -> Result<u64> {
         self.check_target(conn, embedder).await?;
         let tx = conn.transaction().await?;
-        for sql in QUEUE_SCHEMA {
-            tx.execute(sql, ()).await?;
-        }
+        queue::install(&tx).await?;
         tx.execute(
             &format!(
                 "CREATE TABLE IF NOT EXISTS {REGISTRY} (\
@@ -349,7 +277,7 @@ impl EmbeddingColumn {
                             params![literal.map_or(Value::Null, Value::Text), job.rowid, text],
                         )
                         .await?;
-                    tx.execute(ACK, named_params! { ":id": job.id }).await?;
+                    queue::ack(&tx, job.id).await?;
                     tx.commit().await?;
                     if written == 1 {
                         report.embedded += 1;
@@ -362,11 +290,7 @@ impl EmbeddingColumn {
                     report.dead_lettered += 1;
                 }
                 Err(_) => {
-                    conn.execute(
-                        RELEASE,
-                        named_params! { ":backoff": backoff(job.attempts), ":id": job.id },
-                    )
-                    .await?;
+                    queue::release(conn, backoff(job.attempts), job.id).await?;
                     report.retried += 1;
                 }
             }
@@ -403,13 +327,7 @@ impl EmbeddingColumn {
     /// The column's model and backlog.
     pub async fn status(&self, conn: &Connection) -> Result<EmbeddingStatus> {
         let (model, dims) = self.registered(conn).await?;
-        let mut rows = conn
-            .query(BACKLOG, named_params! { ":queue": self.queue() })
-            .await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or_else(|| Error::Misuse("backlog query returned no row".into()))?;
+        let row = queue::backlog(conn, &self.queue()).await?;
         let (pending, ready, oldest_seconds) = (row.get(0)?, row.get(1)?, row.get(2)?);
         let failed = match first(
             conn,
@@ -470,13 +388,7 @@ impl EmbeddingColumn {
     }
 
     async fn claim(&self, conn: &Connection) -> Result<Option<Job>> {
-        let mut rows = conn
-            .query(
-                CLAIM,
-                named_params! { ":visibility": VISIBILITY_SECONDS, ":queue": self.queue() },
-            )
-            .await?;
-        let Some(row) = rows.next().await? else {
+        let Some(row) = queue::claim(conn, VISIBILITY_SECONDS, &self.queue()).await? else {
             return Ok(None);
         };
         Ok(Some(Job {
@@ -488,17 +400,8 @@ impl EmbeddingColumn {
     }
 
     async fn dead_letter(&self, conn: &Connection, id: i64, reason: &str) -> Result<()> {
-        let tx = conn
-            .transaction_with_behavior(crate::TransactionBehavior::Immediate)
-            .await?;
-        tx.execute(
-            DEAD_LETTER[0],
-            named_params! { ":uuid": Value::Null, ":exception": reason, ":id": id },
-        )
-        .await?;
-        tx.execute(DEAD_LETTER[1], named_params! { ":id": id })
-            .await?;
-        tx.commit().await
+        queue::dead_letter(conn, None, Some(reason), id).await?;
+        Ok(())
     }
 
     async fn registered(&self, conn: &Connection) -> Result<(String, usize)> {
@@ -589,7 +492,7 @@ struct Job {
 }
 
 async fn ack(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute(ACK, named_params! { ":id": id }).await?;
+    queue::ack(conn, id).await?;
     Ok(())
 }
 
@@ -645,44 +548,6 @@ fn literal(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The contract document, read at test time so the library itself does
-    /// not depend on a file outside the crate.
-    fn contract() -> String {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../docs/contracts/QUEUE_CONTRACT.md"
-        );
-        normalize(&std::fs::read_to_string(path).unwrap())
-    }
-
-    /// Drop `--` comments and collapse whitespace, so layout is not content.
-    fn normalize(sql: &str) -> String {
-        sql.lines()
-            .map(|l| l.split("--").next().unwrap())
-            .collect::<Vec<_>>()
-            .join(" ")
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
-    /// The queue statements this module runs are the contract's, not a
-    /// paraphrase: editing either side without the other turns this red.
-    #[test]
-    fn queue_sql_is_the_contract_verbatim() {
-        let contract = contract();
-        let ours = QUEUE_SCHEMA
-            .iter()
-            .chain([CLAIM, ACK, RELEASE, BACKLOG].iter())
-            .chain(DEAD_LETTER.iter());
-        for sql in ours {
-            assert!(
-                contract.contains(&normalize(sql)),
-                "not in QUEUE_CONTRACT.md verbatim:\n{sql}"
-            );
-        }
-    }
 
     #[test]
     fn backoff_follows_the_reference_policy() {

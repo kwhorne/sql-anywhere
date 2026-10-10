@@ -46,5 +46,7 @@ Make `:namespace` as it was at a moment available as a read-only namespace
 that other namespaces can `ATTACH`, restored from the bottomless backup. Body:
 `{"timestamp": "2026-10-01T12:00:00"}` (UTC). Responds with the namespace's
 name, `{"namespace": "orders@20261001T120000Z"}`; asking for the same moment
-again returns the same one. Delete it like any other namespace when done. See
+again returns the same one. With `"ttl_seconds": 3600` the primary deletes it,
+with its backups, an hour after making it; otherwise delete it like any other
+namespace when done. See
 [TIME_TRAVEL.md](TIME_TRAVEL.md).

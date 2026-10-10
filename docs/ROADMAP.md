@@ -134,7 +134,8 @@ engine wherever possible.
       `ATTACH`, so history and the present are compared, and deleted rows
       recovered, in one SQL query. See [docs/TIME_TRAVEL.md](TIME_TRAVEL.md);
       verified against a mock S3, which is also the first end-to-end test of
-      forking at a timestamp. Next: an expiry for those namespaces.
+      forking at a timestamp. An optional `ttl_seconds` deletes them, backups
+      included, and survives restarts.
 - [ ] **Windows `sqld` port** — port the replication layer's positional file
       I/O (`pread`/`pwrite`) and atomic rename to Windows. *(medium effort,
       deferred from 0.2.0)*

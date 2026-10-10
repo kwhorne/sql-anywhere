@@ -27,4 +27,7 @@ message DatabaseConfig {
     optional bool shared_schema = 11;
     optional string shared_schema_name = 12;
     optional DurabilityMode durability_mode = 13;
+    // Unix seconds after which the server deletes the namespace. Set on the
+    // read-only namespaces made by `POST /v1/namespaces/:namespace/at`.
+    optional uint64 expires_at = 14;
 }

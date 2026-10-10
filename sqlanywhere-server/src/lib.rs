@@ -97,6 +97,8 @@ mod utils;
 const DB_CREATE_TIMEOUT: Duration = Duration::from_secs(1);
 const DEFAULT_AUTO_CHECKPOINT: u32 = 1000;
 const SQLANYWHERE_PAGE_SIZE: u64 = 4096;
+/// How often the primary looks for namespaces whose expiry has passed.
+const EXPIRED_NAMESPACE_SWEEP: Duration = Duration::from_secs(5);
 
 pub(crate) static BLOCKING_RT: Lazy<Runtime> = Lazy::new(|| {
     tokio::runtime::Builder::new_multi_thread()
@@ -720,6 +722,20 @@ where
         .await?;
 
         self.spawn_monitoring_tasks(&mut task_manager, stats_receiver)?;
+
+        // Delete namespaces whose expiry has passed, such as the read-only
+        // ones `/v1/namespaces/:namespace/at` makes. Only the primary decides.
+        if !db_kind.is_replica() {
+            task_manager.spawn_until_shutdown({
+                let store = namespace_store.clone();
+                async move {
+                    loop {
+                        tokio::time::sleep(EXPIRED_NAMESPACE_SWEEP).await;
+                        store.destroy_expired().await;
+                    }
+                }
+            });
+        }
 
         // if namespaces are enabled, then bottomless must have set DB ID
         if !self.disable_namespaces {

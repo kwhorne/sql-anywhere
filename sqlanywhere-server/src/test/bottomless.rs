@@ -793,6 +793,47 @@ async fn namespace_at_a_moment_is_attachable() {
         ]
     );
 
+    // With a TTL the primary deletes the namespace once it expires; the one
+    // made without a TTL stays.
+    let config = |ns: String| {
+        let admin = admin.clone();
+        async move {
+            admin
+                .get(format!(
+                    "http://127.0.0.1:{ADMIN_PORT}/v1/namespaces/{ns}/config"
+                ))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    let earlier = moment - chrono::Duration::seconds(1);
+    let resp = admin
+        .post(admin_url("/v1/namespaces/tt/at"))
+        .json(&json!({ "timestamp": earlier, "ttl_seconds": 1 }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "{:?}", resp.text().await);
+    let expiring = resp.json::<serde_json::Value>().await.unwrap()["namespace"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(config(expiring.clone()).await.is_success());
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while config(expiring.clone()).await.is_success() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{expiring} outlived its TTL"
+        );
+        sleep(Duration::from_millis(500)).await;
+    }
+    assert!(
+        config(past_name.clone()).await.is_success(),
+        "{past_name} has no TTL and must stay"
+    );
+
     db_job.await;
     drop(cleaner);
 }

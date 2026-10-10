@@ -562,6 +562,24 @@ impl MetaStore {
         self.inner.configs.lock().await.contains_key(namespace)
     }
 
+    /// Namespaces whose `expires_at` is at or before `now`, in unix seconds.
+    pub async fn expired(&self, now: u64) -> Vec<NamespaceName> {
+        self.inner
+            .configs
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, config)| {
+                config
+                    .borrow()
+                    .config
+                    .expires_at
+                    .is_some_and(|at| at <= now)
+            })
+            .map(|(namespace, _)| namespace.clone())
+            .collect()
+    }
+
     pub(crate) async fn shutdown(&self) -> crate::Result<()> {
         let replicator = self.inner.wal_manager.wrapper().as_ref();
 

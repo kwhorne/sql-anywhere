@@ -467,7 +467,11 @@ async fn handle_fork_namespace<C>(
             "database cannot be forked from a shared schema".to_string(),
         ));
     }
-    let to_config = (*from_config).clone();
+    // A fork is kept until deleted, even when its source expires.
+    let to_config = DatabaseConfig {
+        expires_at: None,
+        ..(*from_config).clone()
+    };
     app_state
         .namespaces
         .fork(from, to, to_config, timestamp)
@@ -479,6 +483,8 @@ async fn handle_fork_namespace<C>(
 #[derive(Debug, Deserialize)]
 struct NamespaceAtReq {
     timestamp: NaiveDateTime,
+    /// Delete the namespace this many seconds after it is made.
+    ttl_seconds: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -499,7 +505,9 @@ fn namespace_at_name(namespace: &str, timestamp: NaiveDateTime) -> String {
 ///
 /// From the live database: `ATTACH "orders@20261001T120000Z" AS past`, then
 /// query `past.*` beside `main.*`. Repeating the request returns the existing
-/// namespace. Delete it like any other when done.
+/// namespace, with the expiry it was made with. With `ttl_seconds` the primary
+/// deletes it, and its backups, that long after it is made; without, delete
+/// it like any other when done.
 async fn handle_namespace_at<C>(
     State(app_state): State<Arc<AppState<C>>>,
     Path(namespace): Path<String>,
@@ -525,6 +533,12 @@ async fn handle_namespace_at<C>(
             "read-only: {from} as of {} UTC",
             req.timestamp.format("%Y-%m-%d %H:%M:%S")
         )),
+        expires_at: req.ttl_seconds.map(|ttl| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |now| now.as_secs())
+                + ttl
+        }),
         ..(*from_config).clone()
     };
     match app_state

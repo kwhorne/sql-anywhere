@@ -35,6 +35,9 @@ pub struct DatabaseConfig {
     pub shared_schema_name: Option<NamespaceName>,
     #[serde(default)]
     pub durability_mode: DurabilityMode,
+    /// Unix seconds after which the server deletes the namespace.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
 }
 
 const fn default_max_size() -> u64 {
@@ -61,6 +64,7 @@ impl Default for DatabaseConfig {
             is_shared_schema: false,
             shared_schema_name: None,
             durability_mode: DurabilityMode::default(),
+            expires_at: None,
         }
     }
 }
@@ -88,6 +92,7 @@ impl From<&metadata::DatabaseConfig> for DatabaseConfig {
                 None => DurabilityMode::default(),
                 Some(m) => DurabilityMode::from(metadata::DurabilityMode::try_from(m)),
             },
+            expires_at: value.expires_at,
         }
     }
 }
@@ -108,6 +113,7 @@ impl From<&DatabaseConfig> for metadata::DatabaseConfig {
             shared_schema: Some(value.is_shared_schema),
             shared_schema_name: value.shared_schema_name.as_ref().map(|s| s.to_string()),
             durability_mode: Some(metadata::DurabilityMode::from(value.durability_mode).into()),
+            expires_at: value.expires_at,
         }
     }
 }
@@ -182,5 +188,28 @@ impl From<Result<metadata::DurabilityMode, prost::DecodeError>> for DurabilityMo
             },
             Err(_) => DurabilityMode::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod expiry_test {
+    use super::*;
+
+    /// The expiry is persisted through the meta store's protobuf, so a restart
+    /// does not forget a namespace that is due to be deleted.
+    #[test]
+    fn expires_at_survives_the_stored_form() {
+        let config = DatabaseConfig {
+            expires_at: Some(1_790_000_000),
+            ..Default::default()
+        };
+        let stored = metadata::DatabaseConfig::from(&config);
+        assert_eq!(stored.expires_at, Some(1_790_000_000));
+        assert_eq!(
+            DatabaseConfig::from(&stored).expires_at,
+            Some(1_790_000_000)
+        );
+        let none = metadata::DatabaseConfig::from(&DatabaseConfig::default());
+        assert_eq!(DatabaseConfig::from(&none).expires_at, None);
     }
 }

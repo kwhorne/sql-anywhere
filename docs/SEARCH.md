@@ -23,7 +23,9 @@ is a `JOIN`.
 
 And because it is all just tables, search **syncs** with everything else:
 embedded replicas for read scale-out, CRDT for offline multi-writer merge, even a
-[collaborative vector index](COLLABORATIVE_VECTOR.md).
+[collaborative vector index](COLLABORATIVE_VECTOR.md). To keep a vector column
+in step with the text it embeds without making writes wait on a model, see
+[embedding columns](EMBEDDING_COLUMNS.md).
 
 ## Full-text search
 

@@ -58,6 +58,13 @@ engine wherever possible.
       trick (lexical, not semantic). Covered by `sqlanywhere/tests/embed.rs`.
       Next: a pluggable semantic backend (local ONNX / hosted API) and a
       SQL-level `embed()` UDF for use from `sqld`. *(reference embedder shipped)*
+- [x] **Embedding columns** — a vector column kept in step with a text column:
+      triggers enqueue jobs on the queue contract's own tables, workers embed
+      in the background and never write a vector over text that changed while
+      the model ran, and each column records its model so a worker with another
+      one is refused until an explicit `reembed`. See
+      [docs/EMBEDDING_COLUMNS.md](EMBEDDING_COLUMNS.md); verified
+      (`sqlanywhere/tests/embedding_column.rs`). Next: a `sqld`-side worker.
 - [x] **Local RAG capstone example** — `sqlanywhere/examples/local_rag.rs` ties
       embed + quantized DiskANN + FTS5 + hybrid RRF into one runnable retrieval
       pipeline. *(landed post-0.2.0)*

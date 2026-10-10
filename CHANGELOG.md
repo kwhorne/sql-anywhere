@@ -26,6 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   copied out of its statement, which is run to completion, so holding a
   claimed job does not make the connection's next `COMMIT` fail with "SQL
   statements in progress", as holding a plain local `Row` would.
+- **Embedding columns: a vector column kept in step with a text column.**
+  `sqlanywhere::embedding_column::EmbeddingColumn` installs triggers that
+  enqueue a job whenever the text changes, so writes never wait on a model, and
+  `process` embeds in the background from any number of workers. The jobs live
+  in the queue contract's own `askr_jobs` table and are claimed, acked, backed
+  off and dead-lettered with the contract's statements word for word; a unit
+  test compares them with the document. A worker writes a vector only if the
+  row still holds the text it embedded, so a slow model cannot leave a stale
+  vector behind an edit, and edits made before a worker arrives collapse into
+  one job. Each column records the model it is embedded with, a worker running
+  another model is refused, and `reembed` is the explicit migration. See
+  [docs/EMBEDDING_COLUMNS.md](docs/EMBEDDING_COLUMNS.md).
+- **`Embedder::model_id`**, with a default, so existing embedders keep
+  compiling. `LexicalEmbedder` reports `lexical-fnv1a-<dims>d`.
 
 ### Fixed
 

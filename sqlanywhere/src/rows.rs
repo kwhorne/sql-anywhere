@@ -144,6 +144,67 @@ impl Row {
     pub fn column_type(&self, idx: i32) -> Result<ValueType> {
         self.inner.column_type(idx)
     }
+
+    /// Copy the row's values out of the statement that produced it.
+    ///
+    /// A local row reads its columns from a live statement, and while it is
+    /// held that statement stays in progress, so a later `COMMIT` on the same
+    /// connection fails. The copy holds no statement.
+    pub(crate) fn detach(&self) -> Result<Row> {
+        let mut cols = Vec::new();
+        let mut values = Vec::new();
+        for i in 0..self.column_count() {
+            cols.push(self.column_name(i).unwrap_or_default().to_string());
+            values.push(self.get_value(i)?);
+        }
+        Ok(Row {
+            inner: Box::new(DetachedRow { cols, values }),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct DetachedRow {
+    cols: Vec<String>,
+    values: Vec<Value>,
+}
+
+impl ColumnsInner for DetachedRow {
+    fn column_name(&self, idx: i32) -> Option<&str> {
+        self.cols.get(idx as usize).map(String::as_str)
+    }
+
+    fn column_type(&self, idx: i32) -> Result<ValueType> {
+        Ok(match self.values.get(idx as usize) {
+            Some(Value::Integer(_)) => ValueType::Integer,
+            Some(Value::Real(_)) => ValueType::Real,
+            Some(Value::Text(_)) => ValueType::Text,
+            Some(Value::Blob(_)) => ValueType::Blob,
+            Some(Value::Null) => ValueType::Null,
+            None => return Err(crate::Error::InvalidColumnIndex),
+        })
+    }
+
+    fn column_count(&self) -> i32 {
+        self.values.len() as i32
+    }
+}
+
+impl RowInner for DetachedRow {
+    fn column_value(&self, idx: i32) -> Result<Value> {
+        self.values
+            .get(idx as usize)
+            .cloned()
+            .ok_or(crate::Error::InvalidColumnIndex)
+    }
+
+    fn column_str(&self, idx: i32) -> Result<&str> {
+        match self.values.get(idx as usize) {
+            Some(Value::Text(s)) => Ok(s),
+            Some(_) => Err(crate::Error::InvalidColumnType),
+            None => Err(crate::Error::InvalidColumnIndex),
+        }
+    }
 }
 
 impl fmt::Debug for Row {

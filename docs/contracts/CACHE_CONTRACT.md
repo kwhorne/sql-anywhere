@@ -52,6 +52,7 @@ CREATE INDEX IF NOT EXISTS askr_cache_tags_key ON askr_cache_tags (key);
 ### Set (put, with optional TTL)
 
 ```sql
+-- name: Set :exec
 -- ttl > 0: expires_at = now + ttl. ttl = 0 / forever: expires_at = NULL.
 INSERT INTO askr_cache (key, value, expires_at)
 VALUES (:key, :value, :expires_at)
@@ -61,6 +62,7 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.exp
 ### Get
 
 ```sql
+-- name: Get :opt
 SELECT value FROM askr_cache_live WHERE key = :key;
 ```
 
@@ -69,8 +71,11 @@ An expired row returning no result is a miss; the sweep reclaims it later.
 ### Forget / flush
 
 ```sql
-DELETE FROM askr_cache WHERE key = :key;               -- forget
-DELETE FROM askr_cache;                                 -- flush all
+-- name: Forget :exec
+DELETE FROM askr_cache WHERE key = :key;
+
+-- name: Flush :exec
+DELETE FROM askr_cache;
 ```
 
 ### Atomic increment / decrement (counters, rate limiting)
@@ -79,6 +84,7 @@ Single-statement, so it is atomic under concurrency. Treats a missing/expired
 entry as `0`:
 
 ```sql
+-- name: Increment :one
 INSERT INTO askr_cache (key, value, expires_at)
 VALUES (:key, :delta, :expires_at)
 ON CONFLICT(key) DO UPDATE SET
@@ -107,6 +113,7 @@ empty result as an error either. It is the normal answer for a lock that is
 taken.
 
 ```sql
+-- name: Lock :opt
 INSERT INTO askr_cache (key, value, expires_at)
 VALUES (:key, :owner, unixepoch() + :ttl)
 ON CONFLICT(key) DO UPDATE SET
@@ -119,15 +126,18 @@ RETURNING (value = :owner) AS acquired;               -- always 1; no row = not 
 Release only if still the owner (prevents releasing someone else's lock):
 
 ```sql
+-- name: Unlock :exec
 DELETE FROM askr_cache WHERE key = :key AND value = :owner;
 ```
 
 ### Tags
 
 ```sql
+-- name: Tag :exec
 -- On a tagged set, also record the mappings.
 INSERT OR IGNORE INTO askr_cache_tags (tag, key) VALUES (:tag, :key);
 
+-- name: InvalidateTag :exec
 -- Invalidate a whole tag.
 DELETE FROM askr_cache
 WHERE key IN (SELECT key FROM askr_cache_tags WHERE tag = :tag);
@@ -139,6 +149,7 @@ DELETE FROM askr_cache_tags WHERE tag = :tag;
 A cron, background task, or trigger:
 
 ```sql
+-- name: Sweep :exec
 DELETE FROM askr_cache WHERE expires_at IS NOT NULL AND expires_at <= unixepoch();
 ```
 

@@ -2,6 +2,7 @@ use std::{env, process::Command};
 
 use anyhow::{bail, Context, Result};
 
+mod contracts;
 mod extensions;
 
 fn main() {
@@ -25,6 +26,9 @@ fn try_main() -> Result<()> {
         Some("extension-keygen") => extension_keygen()?,
         Some("sign-extensions") => sign_extensions()?,
         Some("verify-extensions") => verify_extensions()?,
+        Some("gen-contracts") => {
+            contracts::gen_contracts(&contracts::repo_root(), arg == "--check")?
+        }
         _ => print_help(),
     }
     Ok(())
@@ -101,6 +105,8 @@ test                   runs the entire sqlanywhere test suite using nextest
 test-encryption        runs encryption tests for embedded replicas
 sim-tests <test name>  runs the sqlanywhere-server simulation test suite
 publish-cratesio       publish sqlanywhere client crates to crates.io
+gen-contracts          compile docs/contracts into sqlanywhere/src/contracts.rs and
+                       docs/contracts/contracts.json [--check: fail if they are stale]
 
 Extension repository:
 extension-keygen                 generate an extension signing key pair (run once, locally).

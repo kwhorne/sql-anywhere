@@ -157,6 +157,7 @@ pub use params::params_from_iter;
 
 mod auth;
 mod connection;
+pub mod contracts;
 mod database;
 mod embed;
 mod load_extension_guard;

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A typed Rust API compiled from the storage contracts.** Every statement in
+  the queue, cache and pub/sub contracts now carries an sqlc-style annotation
+  (`-- name: Claim :opt`), and every parameter is typed once in a table in
+  `docs/contracts/README.md`. `cargo xtask gen-contracts` compiles the two into
+  `sqlanywhere::contracts`, one function per operation with typed arguments
+  (`queue::claim(&conn, visibility, queue)`, `cache::lock(&conn, key, owner,
+  ttl)`, …), each contract's `install`, and the statements as constants; and
+  into `docs/contracts/contracts.json`, the same operations as data for
+  generating clients in other languages. The annotation is what separates
+  alternatives from sequences: forget and flush are two operations, the
+  dead-letter move is one, run in the `IMMEDIATE` transaction the contract
+  spells out. `generated_contracts_are_fresh` fails CI when a document changes
+  without the API following. A runtime such as Askr can now call the contracts
+  instead of transcribing them. A row a `:one` or `:opt` function returns is
+  copied out of its statement, which is run to completion, so holding a
+  claimed job does not make the connection's next `COMMIT` fail with "SQL
+  statements in progress", as holding a plain local `Row` would.
+
 ### Fixed
 
 - **A connection that gave up waiting for the write lock could leave every

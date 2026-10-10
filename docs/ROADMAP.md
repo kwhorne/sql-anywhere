@@ -30,6 +30,13 @@ engine wherever possible.
       contracts in [docs/contracts/](contracts/README.md) are executable specs
       verified by `sqlanywhere/tests/contract_conformance.rs`, so the Askr
       runtime (substrate × runtime, epic elyra-2) builds against a proven seam.
+- [x] **A typed API compiled from the contracts** — `cargo xtask gen-contracts`
+      turns the annotated contract documents into `sqlanywhere::contracts`
+      (`queue::claim(&conn, visibility, queue)` and 21 more) and a
+      language-neutral `contracts.json`, and CI fails when a document changes
+      without them. Askr can call the contracts instead of transcribing them.
+      See [docs/contracts/README.md](contracts/README.md#generated-api).
+      Next: PHP and TypeScript clients generated from `contracts.json`.
 - [x] **Storage primitives as chapters, not products** — a KV cache with TTL, a
       durable work queue (atomic `UPDATE … RETURNING` claim, at-least-once), and
       pub/sub over the replication log, all composed in plain SQL. See

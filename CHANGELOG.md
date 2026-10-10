@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Namespaces made by `/at` can expire.** `ttl_seconds` in the request makes
+  the primary delete the namespace, with its own backups, that long after it
+  is made. The expiry is a new optional `expires_at` in the namespace
+  configuration, stored through the meta store, so a restart does not forget
+  it, and the primary sweeps for expired namespaces every five seconds. A plain
+  fork does not inherit it. See [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md).
 - **A typed Rust API compiled from the storage contracts.** Every statement in
   the queue, cache and pub/sub contracts now carries an sqlc-style annotation
   (`-- name: Claim :opt`), and every parameter is typed once in a table in

@@ -103,6 +103,26 @@ impl NamespaceStore {
         self.inner.metadata.exists(namespace).await
     }
 
+    /// Delete every namespace whose expiry has passed, backups included, and
+    /// return the ones deleted. A namespace that is already gone counts as
+    /// deleted; any other failure is logged and retried on the next sweep.
+    pub async fn destroy_expired(&self) -> Vec<NamespaceName> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let mut deleted = Vec::new();
+        for namespace in self.inner.metadata.expired(now).await {
+            match self.destroy(namespace.clone(), true).await {
+                Ok(()) | Err(Error::NamespaceDoesntExist(_)) => {
+                    tracing::info!("deleted expired namespace {namespace}");
+                    deleted.push(namespace);
+                }
+                Err(e) => tracing::warn!("failed to delete expired namespace {namespace}: {e}"),
+            }
+        }
+        deleted
+    }
+
     pub async fn destroy(&self, namespace: NamespaceName, prune_all: bool) -> crate::Result<()> {
         if self.inner.has_shutdown.load(Ordering::Relaxed) {
             return Err(Error::NamespaceStoreShutdown);

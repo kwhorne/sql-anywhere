@@ -32,6 +32,10 @@ pub struct DatabaseConfig {
     pub shared_schema_name: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(enumeration = "DurabilityMode", optional, tag = "13")]
     pub durability_mode: ::core::option::Option<i32>,
+    /// Unix seconds after which the server deletes the namespace. Set on the
+    /// read-only namespaces made by `POST /v1/namespaces/:namespace/at`.
+    #[prost(uint64, optional, tag = "14")]
+    pub expires_at: ::core::option::Option<u64>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

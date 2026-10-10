@@ -10,7 +10,7 @@ namespace, and `ATTACH` puts it next to the live data:
 
 ```sh
 curl -X POST http://localhost:9090/v1/namespaces/orders/at \
-     -d '{"timestamp": "2026-10-01T12:00:00"}'
+     -d '{"timestamp": "2026-10-01T12:00:00", "ttl_seconds": 3600}'
 # {"namespace": "orders@20261001T120000Z"}
 ```
 
@@ -45,7 +45,13 @@ timestamp, which this is built on.
   from can `ATTACH` it. The name has `@` in it, so it is written in double
   quotes, as above. It can also be queried on its own, like any namespace.
 - **Its own namespace.** It is restored once, when created, and stays until it
-  is deleted with `DELETE /v1/namespaces/<name>`.
+  is deleted with `DELETE /v1/namespaces/<name>`, or until it expires.
+- **An optional expiry.** With `"ttl_seconds": 3600` in the request, the
+  primary deletes the namespace, and its own backups, an hour after making it.
+  The expiry is stored with the namespace's configuration, so a restart does
+  not forget it; the primary looks for expired namespaces every few seconds.
+  Repeating the request returns the namespace with the expiry it was made
+  with. A plain `fork` of it does not inherit the expiry.
 
 ## Precision
 
@@ -65,4 +71,4 @@ batch behind for writes made in the last instant before it.
   before it plus the WAL batches after that, so it costs what a restore costs.
   It suits looking back, auditing and recovering rows, not running many
   moments per second.
-- The namespace is not deleted for you. An expiry is a natural next step.
+- Without `ttl_seconds` the namespace is kept until it is deleted.

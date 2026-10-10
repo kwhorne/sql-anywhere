@@ -129,8 +129,12 @@ engine wherever possible.
       (`sqlanywhere-sqlite3/test/rust_suite/src/extension_abi.rs`).
 - [ ] **OpenTelemetry / Prometheus dashboards** — ready-made metrics + tracing
       export for `sqld`. *(low–medium effort)*
-- [ ] **Bottomless point-in-time recovery UX** — friendlier restore workflow on
-      top of the existing S3 backup. *(medium effort)*
+- [x] **Querying the past** — `POST /v1/namespaces/:ns/at` turns any moment in
+      the bottomless backup into a read-only namespace that the live one can
+      `ATTACH`, so history and the present are compared, and deleted rows
+      recovered, in one SQL query. See [docs/TIME_TRAVEL.md](TIME_TRAVEL.md);
+      verified against a mock S3, which is also the first end-to-end test of
+      forking at a timestamp. Next: an expiry for those namespaces.
 - [ ] **Windows `sqld` port** — port the replication layer's positional file
       I/O (`pread`/`pwrite`) and atomic rename to Windows. *(medium effort,
       deferred from 0.2.0)*

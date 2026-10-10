@@ -622,3 +622,177 @@ impl Drop for S3BucketCleaner {
         //let _ = block_on(Self::cleanup(self.0));
     }
 }
+
+/// A namespace as it was at a moment, restored from bottomless, attached to
+/// the live namespace and queried beside it.
+///
+/// This is also the only test of point-in-time fork: the `/at` endpoint is a
+/// fork with a timestamp, and nothing else exercises that path end to end.
+#[tokio::test]
+async fn namespace_at_a_moment_is_attachable() {
+    use crate::config::AdminApiConfig;
+    use serde_json::json;
+
+    let _ = tracing_subscriber::fmt::try_init();
+    start_s3_server().await;
+
+    const BUCKET: &str = "testnamespaceat";
+    const PATH: &str = "namespace_at.sqld";
+    const PORT: u16 = 15003;
+    const ADMIN_PORT: u16 = 15004;
+
+    let _ = S3BucketCleaner::new(BUCKET).await;
+    let cleaner = DbFileCleaner::new(PATH);
+    let options = bottomless::replicator::Options {
+        db_id: Some("testnamespaceat".to_string()),
+        create_bucket_if_not_exists: true,
+        verify_crc: true,
+        use_compression: bottomless::replicator::CompressionKind::Gzip,
+        bucket_name: BUCKET.to_string(),
+        max_batch_interval: Duration::from_millis(250),
+        ..bottomless::replicator::Options::from_env().unwrap()
+    };
+    let bind = |port: u16| {
+        format!("127.0.0.1:{port}")
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap()
+    };
+    let mut server = configure_server(&options, bind(PORT), PATH).await;
+    server.disable_namespaces = false;
+    server.disable_default_namespace = true;
+    server.admin_api_config = Some(AdminApiConfig {
+        acceptor: AddrIncoming::new(
+            tokio::net::TcpListener::bind(bind(ADMIN_PORT))
+                .await
+                .unwrap(),
+        ),
+        connector: hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .https_or_http()
+            .enable_http1()
+            .build(),
+        disable_metrics: true,
+        auth_key: None,
+    });
+    let db_job = start_db(1, server);
+    sleep(Duration::from_secs(1)).await;
+
+    let admin = reqwest::Client::new();
+    let admin_url = |path: &str| format!("http://127.0.0.1:{ADMIN_PORT}{path}");
+    let resp = admin
+        .post(admin_url("/v1/namespaces/tt/create"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "{:?}", resp.text().await);
+
+    let open = |ns: &str| {
+        let ns = ns.to_string();
+        async move {
+            sqlanywhere::Builder::new_remote(format!("http://127.0.0.1:{PORT}"), String::new())
+                .namespace(ns)
+                .build()
+                .await
+                .unwrap()
+                .connect()
+                .unwrap()
+        }
+    };
+    let live = open("tt").await;
+    live.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)", ())
+        .await
+        .unwrap();
+    live.execute("INSERT INTO t VALUES (1, 'before')", ())
+        .await
+        .unwrap();
+
+    // Batch timestamps are whole seconds taken when a batch is flushed, so
+    // leave a clear margin on both sides of the moment asked for.
+    sleep(Duration::from_secs(2)).await;
+    let moment = chrono::Utc::now().naive_utc();
+    sleep(Duration::from_secs(2)).await;
+
+    live.execute("UPDATE t SET v = 'after' WHERE id = 1", ())
+        .await
+        .unwrap();
+    live.execute("INSERT INTO t VALUES (2, 'later')", ())
+        .await
+        .unwrap();
+    sleep(Duration::from_secs(2)).await;
+
+    let at = |moment: chrono::NaiveDateTime| {
+        let admin = admin.clone();
+        let url = admin_url("/v1/namespaces/tt/at");
+        async move {
+            let resp = admin
+                .post(url)
+                .json(&json!({ "timestamp": moment }))
+                .send()
+                .await
+                .unwrap();
+            assert!(resp.status().is_success(), "{:?}", resp.text().await);
+            resp.json::<serde_json::Value>().await.unwrap()["namespace"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let past_name = at(moment).await;
+    assert_eq!(past_name, format!("tt@{}", moment.format("%Y%m%dT%H%M%SZ")));
+    // Asking again for the same moment finds the same namespace.
+    assert_eq!(at(moment).await, past_name);
+
+    // The past, on its own: the first write only.
+    let past = open(&past_name).await;
+    let mut rows = past
+        .query("SELECT id, v FROM t ORDER BY id", ())
+        .await
+        .unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i64>(0).unwrap(), 1);
+    assert_eq!(row.get::<String>(1).unwrap(), "before");
+    assert!(rows.next().await.unwrap().is_none());
+    drop(rows);
+    // And read-only.
+    assert!(past
+        .execute("INSERT INTO t VALUES (3, 'rewrite history')", ())
+        .await
+        .is_err());
+
+    // The past beside the present, in one query.
+    let tx = live.transaction().await.unwrap();
+    tx.execute(&format!("ATTACH \"{past_name}\" AS past"), ())
+        .await
+        .unwrap();
+    let mut rows = tx
+        .query(
+            "SELECT cur.id, old.v, cur.v FROM main.t AS cur \
+             LEFT JOIN past.t AS old ON old.id = cur.id ORDER BY cur.id",
+            (),
+        )
+        .await
+        .unwrap();
+    let mut seen = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        seen.push((
+            row.get::<i64>(0).unwrap(),
+            row.get_value(1).unwrap(),
+            row.get::<String>(2).unwrap(),
+        ));
+    }
+    drop(rows);
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        seen,
+        vec![
+            (1, Value::Text("before".into()), "after".to_string()),
+            (2, Value::Null, "later".to_string()),
+        ]
+    );
+
+    db_job.await;
+    drop(cleaner);
+}

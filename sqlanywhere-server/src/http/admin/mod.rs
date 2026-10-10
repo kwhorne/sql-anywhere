@@ -151,6 +151,7 @@ where
             "/v1/namespaces/:namespace/fork/:to",
             post(handle_fork_namespace),
         )
+        .route("/v1/namespaces/:namespace/at", post(handle_namespace_at))
         .route(
             "/v1/namespaces/:namespace/create",
             post(handle_create_namespace),
@@ -473,6 +474,69 @@ async fn handle_fork_namespace<C>(
         .await?;
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct NamespaceAtReq {
+    timestamp: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct NamespaceAtResp {
+    namespace: String,
+}
+
+/// The name of the read-only view of `namespace` as it was at `timestamp`,
+/// such as `orders@20261001T120000Z`. Deterministic, so asking for the same
+/// moment twice finds the first one.
+fn namespace_at_name(namespace: &str, timestamp: NaiveDateTime) -> String {
+    format!("{namespace}@{}", timestamp.format("%Y%m%dT%H%M%SZ"))
+}
+
+/// `POST /v1/namespaces/:namespace/at` with `{"timestamp": "..."}`: make the
+/// namespace as it was at that moment (UTC) available as a read-only namespace
+/// that can be attached, restored from the bottomless backup.
+///
+/// From the live database: `ATTACH "orders@20261001T120000Z" AS past`, then
+/// query `past.*` beside `main.*`. Repeating the request returns the existing
+/// namespace. Delete it like any other when done.
+async fn handle_namespace_at<C>(
+    State(app_state): State<Arc<AppState<C>>>,
+    Path(namespace): Path<String>,
+    Json(req): Json<NamespaceAtReq>,
+) -> crate::Result<Json<NamespaceAtResp>> {
+    let name = namespace_at_name(&namespace, req.timestamp);
+    let from = NamespaceName::from_string(namespace)?;
+    let to = NamespaceName::from_string(name.clone())?;
+    if app_state.namespaces.exists(&to).await {
+        return Ok(Json(NamespaceAtResp { namespace: name }));
+    }
+    let from_store = app_state.namespaces.config_store(from.clone()).await?;
+    let from_config = from_store.get();
+    if from_config.is_shared_schema {
+        return Err(Error::SharedSchemaUsageError(
+            "database cannot be forked from a shared schema".to_string(),
+        ));
+    }
+    let to_config = DatabaseConfig {
+        allow_attach: true,
+        block_writes: true,
+        block_reason: Some(format!(
+            "read-only: {from} as of {} UTC",
+            req.timestamp.format("%Y-%m-%d %H:%M:%S")
+        )),
+        ..(*from_config).clone()
+    };
+    match app_state
+        .namespaces
+        .fork(from, to, to_config, Some(req.timestamp))
+        .await
+    {
+        // Lost a race with an identical request: the namespace is there.
+        Ok(()) | Err(Error::NamespaceAlreadyExist(_)) => {}
+        Err(e) => return Err(e),
+    }
+    Ok(Json(NamespaceAtResp { namespace: name }))
 }
 
 async fn dump_stream_from_url<C>(url: &Url, connector: C) -> Result<DumpStream, LoadDumpError>

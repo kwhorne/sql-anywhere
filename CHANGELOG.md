@@ -64,6 +64,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   update rather than a deletion plus an insertion. Verified against a real
   primary and embedded replica in the turmoil suite. See
   [docs/LIVE_QUERIES.md](docs/LIVE_QUERIES.md).
+- **Querying the past: a namespace as it was at any moment, attachable to the
+  live one.** `POST /v1/namespaces/:namespace/at` with a UTC `timestamp`
+  restores the namespace from its bottomless backup as of that moment into a
+  read-only namespace named `<namespace>@<YYYYMMDDTHHMMSS>Z`, with attach
+  allowed. `ATTACH "orders@20261001T120000Z" AS past` then puts history next
+  to the live tables, so what changed is a join and a deleted row is an
+  `INSERT … SELECT`. The name is deterministic, so repeating the request, or
+  two clients making it at once, yields one namespace. See
+  [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md). Built on forking at a timestamp,
+  which had no end-to-end test; the new one, against a mock S3, covers both.
 
 ### Fixed
 

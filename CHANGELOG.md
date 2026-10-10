@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A connection that gave up waiting for the write lock could leave every
+  later writer in the namespace waiting forever.** A connection queued for the
+  write slot returns `SQLITE_BUSY` when it wakes to find a checkpoint holding
+  the slot, or a stale sync token after a WAL restart. Its queue entry stayed
+  behind, since the queue cannot remove one. Once that connection had closed,
+  the next release handed the slot to the dead entry as `Notified`, a state
+  with no timeout that no other writer may steal, and every writer after it
+  waited on it, spinning, for good. A waiter that gives up now marks its entry
+  dead, so it is skipped, and passes the slot on if it had already been handed
+  it. Reproduced deterministically by two new tests in
+  `connection_manager.rs`, one for each half of the fix, each of which fails
+  without it. This is the likely cause of `test_many_concurrent` hanging until
+  its 60 s timeout in CI, which retries a busy `BEGIN` on a fresh connection,
+  the sequence that strands the slot.
+
 - **The Docker images build again: base images moved from Debian 11 to 12.**
   bullseye left LTS on 2026-06-30. deb.debian.org kept serving the
   bullseye-security index while the pool dropped the `+deb11u` packages it

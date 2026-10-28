@@ -73,12 +73,10 @@ pub(super) async fn make_primary_connection_maker(
         }
     };
 
-    // FIXME: due to a bug in logger::checkpoint_db we call regular checkpointing code
-    // instead of our virtual WAL one. It's a bit tangled to fix right now, because
-    // we need WAL context for checkpointing, and WAL context needs the ReplicationLogger...
-    // So instead we checkpoint early, *before* bottomless gets initialized. That way
-    // we're sure bottomless won't try to back up any existing WAL frames and will instead
-    // treat the existing db file as the source of truth.
+    // Checkpoint early, *before* bottomless gets initialized, on a plain connection
+    // (logger::checkpoint_db): the WAL wrappers need the ReplicationLogger, which does not
+    // exist yet. That way bottomless won't try to back up any existing WAL frames and will
+    // instead treat the existing db file as the source of truth.
 
     let bottomless_replicator = match primary_config.bottomless_replication {
         Some(ref options) => {
@@ -86,7 +84,10 @@ pub(super) async fn make_primary_connection_maker(
             // disabling this allows us to prevent checkpointing of the wal file.
             if !std::env::var("SQLANYWHERE_DISABLE_INIT_CHECKPOINTING").is_ok() {
                 tracing::debug!("Checkpointing before initializing bottomless");
-                crate::replication::primary::logger::checkpoint_db(&db_path.join("data"))?;
+                crate::replication::primary::logger::checkpoint_db(
+                    &db_path.join("data"),
+                    encryption_config.as_ref(),
+                )?;
                 tracing::debug!("Checkpointed before initializing bottomless");
             } else {
                 tracing::warn!("Disabling initial checkpoint before bottomless");

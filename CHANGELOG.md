@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Partial branches: a lens chooses the rows a branch holds.** A
+  `branch::Lens` names, per tracked table, a SQL predicate over its rows,
+  relational (`project_id = ?`) or semantic (`id IN (SELECT id FROM
+  vector_top_k(…))`); `fork_lens` makes a branch with only those rows, each
+  with its whole history, and `pull_lens` keeps the held rows in step with
+  main (deletes included) and brings in rows that match now, whole. Writes on
+  the branch diff and merge as on any branch, and a merge never deletes what
+  the branch does not hold. The first step towards selective replication. See
+  [docs/BRANCHES.md](docs/BRANCHES.md#partial-branches-a-lens).
 - **`vector_index_stats('index')`.** A SQL function in the engine that
   describes a DiskANN index as JSON: its parameters with defaults filled in
   (metric, vector type, dimensions, `compress_neighbors`, block size, maximum

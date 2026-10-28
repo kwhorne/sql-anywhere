@@ -73,6 +73,8 @@ open it: a file beside the parent, a temp file, or `:memory:`.
 | Function | Does |
 | --- | --- |
 | `fork(main, branch)` | Copy main's schema and data into an empty database and mark it as main's branch. |
+| `fork_lens(main, branch, lens)` | The same, holding only the rows a `Lens` selects (below). |
+| `pull_lens(main, branch, lens)` | `pull` for such a branch: changes to the rows it holds, and the rows the lens selects now. |
 | `diff(main, branch)` | List the rows the branch changed since the fork or the last merge, beside main's current values, and the conflicts a merge would hit. Read-only. |
 | `merge(main, branch)` | Apply those changes to main, and enqueue and publish the branch's jobs and events there. Report every conflict and which side won. |
 | `merge_if(main, branch, policy)` | The same, only if the diff passes a `MergePolicy`; otherwise write nothing and return the diff with every violation. |
@@ -138,6 +140,41 @@ pending; `Gate::Held` returns the diff that was checked, and each `Violation`
 prints as a sentence for a review queue. `MergePolicy::check(&diff)` is public,
 for a caller that wants to add its own rules before deciding.
 
+## Partial branches: a lens
+
+A branch does not have to hold all of main. A `Lens` names, per tracked
+table, a SQL predicate over its rows, and `fork_lens` makes a branch with only
+those rows, each with its whole history:
+
+```rust
+use sqlanywhere::branch::{self, Lens};
+
+// The project a user works on, and the 500 documents nearest to what they are
+// writing about.
+let lens = Lens::new()
+    .rows("tasks", "project_id = ?", params![42])?
+    .rows("docs", "id IN (SELECT id FROM vector_top_k('docs_vec', vector32(?), 500))",
+          params![context_vector])?;
+branch::fork_lens(&main, &laptop, &lens).await?;
+```
+
+The predicate can be relational or semantic: `vector_top_k` in it makes the
+lens "the part of the knowledge base that matters to this task". Tables the
+lens does not name are held in full. Otherwise it is an ordinary branch: write
+to it offline, `diff` and `merge` it back (a merge never deletes the rows the
+branch does not hold), and keep it current with `pull_lens`:
+
+- **Rows it holds** receive every change main made since the branch last
+  looked, whether or not they still match, so a row deleted on main is deleted
+  on the branch too.
+- **Rows that match now** and are not held yet arrive whole: every cell's
+  current value, including those written long before the branch's last pull.
+  The lens can be a different one each time, to widen or move the focus.
+- **Rows that stop matching are kept.** Removing one on the branch would be a
+  delete, and the next merge would carry it back to main.
+
+`pull` on a partial branch pulls everything, and turns it into a full one.
+
 ## Semantics
 
 **Tracked and untracked tables.** Only tables that are CRRs on main are tracked.
@@ -176,6 +213,9 @@ writes, and triggers on the receiving side fire for them.
   large production database; a file-level copy with a fresh site id is the
   faster path, and is not built yet.
 - `merge` and `pull` run against two local connections. Branching a database
-  served by `sqld`, and a `sqld` endpoint for it, are not built yet.
+  served by `sqld`, and a `sqld` endpoint for it, are not built yet; that is
+  also what keeps a lens from syncing a laptop with a server today.
+- A lens selects rows, not columns, and does not evict: a partial branch only
+  grows until it is forked again.
 - Schema changes on either side after the fork are not carried. Fork again after
   a migration.

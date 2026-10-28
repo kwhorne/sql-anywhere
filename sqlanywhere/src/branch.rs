@@ -53,6 +53,9 @@ use crate::params::params_from_iter;
 use crate::transaction::TransactionBehavior;
 use crate::{params, Connection, Error, Result, Value};
 
+mod lens;
+pub use lens::{fork_lens, pull_lens, Lens};
+
 /// Name of the table a branch keeps its bookkeeping in.
 const META_TABLE: &str = "sqlanywhere_branch";
 
@@ -417,6 +420,15 @@ pub enum Gate {
 /// own. Views and triggers are created after the data is in, so a trigger does
 /// not fire a second time for rows that it already handled on `main`.
 pub async fn fork(main: &Connection, branch: &Connection) -> Result<BranchInfo> {
+    fork_with(main, branch, None).await
+}
+
+/// [`fork`], with the tracked tables' rows limited to what `lens` selects.
+async fn fork_with(
+    main: &Connection,
+    branch: &Connection,
+    lens: Option<&Lens>,
+) -> Result<BranchInfo> {
     if !schema_objects(branch).await?.is_empty() {
         return Err(Error::Misuse(
             "branch::fork needs an empty database to fork into".into(),
@@ -428,7 +440,10 @@ pub async fn fork(main: &Connection, branch: &Connection) -> Result<BranchInfo> 
     let tracked = tracked_tables(&tx).await?;
     let site_id = blob(&one(&tx, "SELECT crsql_site_id()", ()).await?)?;
     let version = int(&one(&tx, "SELECT crsql_db_version()", ()).await?)?;
-    let changes = changes_since(&tx, 0, None).await?;
+    let changes = match lens {
+        None => changes_since(&tx, 0, None).await?,
+        Some(lens) => lens::changes_in(&tx, &tracked, lens).await?,
+    };
     let mut untracked = Vec::new();
     let mut plain_rows = Vec::new();
     for obj in objects.iter().filter(|o| o.kind == "table") {

@@ -147,7 +147,9 @@ engine wherever possible.
       recovered, in one SQL query. See [docs/TIME_TRAVEL.md](TIME_TRAVEL.md);
       verified against a mock S3, which is also the first end-to-end test of
       forking at a timestamp. An optional `ttl_seconds` deletes them, backups
-      included, and survives restarts.
+      included, and survives restarts. `compare::table` turns the two versions
+      of a table into a typed diff with how far each embedding moved, so
+      "which documents changed meaning since Tuesday" is one call.
 - [ ] **Windows `sqld` port** — port the replication layer's positional file
       I/O (`pread`/`pwrite`) and atomic rename to Windows. *(medium effort,
       deferred from 0.2.0)*

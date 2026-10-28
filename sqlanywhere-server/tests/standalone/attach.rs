@@ -317,3 +317,91 @@ fn attach_auth_with_uuids() {
 
     sim.run().unwrap();
 }
+
+/// `compare::table` against an attached namespace, as it is used with a
+/// namespace at a moment: on `sqld`, ATTACH holds only inside a transaction,
+/// so the comparison runs on that transaction.
+#[test]
+fn compare_with_an_attached_namespace() {
+    use sqlanywhere::compare::{self, RowKind};
+    use sqlanywhere::Value;
+
+    let mut sim = turmoil::Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+
+    sim.host("primary", make_standalone_server);
+
+    sim.client("test", async {
+        let client = Client::new();
+        client
+            .post(
+                "http://primary:9090/v1/namespaces/now/create",
+                serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        client
+            .post(
+                "http://primary:9090/v1/namespaces/earlier/create",
+                serde_json::json!({ "allow_attach": true }),
+            )
+            .await
+            .unwrap();
+
+        for (ns, rows) in [
+            (
+                "earlier",
+                "(1, 'a', vector32('[1,0,0]')), (2, 'b', vector32('[0,1,0]'))",
+            ),
+            (
+                "now",
+                "(2, 'b', vector32('[0,0.8,0.6]')), (3, 'c', vector32('[0,0,1]'))",
+            ),
+        ] {
+            let db = Database::open_remote_with_connector(
+                format!("http://{ns}.primary:8080"),
+                "",
+                TurmoilConnector,
+            )?;
+            let conn = db.connect()?;
+            conn.execute(
+                "CREATE TABLE docs (id INTEGER PRIMARY KEY, title TEXT, emb FLOAT32(3))",
+                (),
+            )
+            .await?;
+            conn.execute(&format!("INSERT INTO docs VALUES {rows}"), ())
+                .await?;
+        }
+
+        let db =
+            Database::open_remote_with_connector("http://now.primary:8080", "", TurmoilConnector)?;
+        let conn = db.connect()?;
+        let txn = conn.transaction().await?;
+        txn.execute("ATTACH earlier AS past", ()).await?;
+        let diff = compare::table(&txn, "docs", "past", "main").await?;
+        txn.commit().await?;
+
+        let kinds: Vec<_> = diff
+            .rows
+            .iter()
+            .map(|r| (r.key[0].clone(), r.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                (Value::Integer(3), RowKind::Inserted),
+                (Value::Integer(2), RowKind::Updated),
+                (Value::Integer(1), RowKind::Deleted),
+            ]
+        );
+        // [0,1,0] to [0,0.8,0.6]: cosine distance 1 - 0.8.
+        let moved = diff.moved("emb");
+        assert_eq!(moved.len(), 1);
+        assert!((moved[0].1 - 0.2).abs() < 1e-4, "{}", moved[0].1);
+
+        Ok(())
+    });
+
+    sim.run().unwrap();
+}

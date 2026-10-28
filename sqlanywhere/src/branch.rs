@@ -491,6 +491,124 @@ pub async fn fork(main: &Connection, branch: &Connection) -> Result<BranchInfo> 
     })
 }
 
+/// Make a branch of `main` at `path` by copying the file, for databases too
+/// large for [`fork`].
+///
+/// [`fork`] replays `main`'s history into the branch one `crsql_changes` row
+/// at a time. This copies `main` page by page with `VACUUM INTO`, one
+/// consistent snapshot, and then gives the copy its own identity. A copied
+/// file still believes it is `main`: cr-sqlite marks a database's own writes
+/// with site ordinal 0, so every row `main` ever wrote would look like the
+/// branch's work and the first diff would show the whole database. The copy's
+/// clock rows are moved to an ordinal for `main`'s site id, and ordinal 0 gets
+/// a new site id, before anything opens it with cr-sqlite.
+///
+/// `path` must not exist yet, or be empty. Open it afterwards with the extension loaded and
+/// use it as any branch; [`diff`], [`merge`] and [`pull`] cannot tell the two
+/// kinds of fork apart. `main` must be a local database.
+pub async fn fork_file(main: &Connection, path: &str) -> Result<BranchInfo> {
+    let parent_site_id = blob(&one(main, "SELECT crsql_site_id()", ()).await?)?;
+    // Refuses a file that exists and is not empty.
+    main.execute("VACUUM INTO ?", params![path]).await?;
+
+    // The copy, without cr-sqlite: it would load main's site id into memory.
+    let db = crate::Builder::new_local(path).build().await?;
+    let copy = db.connect()?;
+    let tx = copy.transaction().await?;
+    let copied_site = blob(
+        &one(
+            &tx,
+            "SELECT site_id FROM crsql_site_id WHERE ordinal = 0",
+            (),
+        )
+        .await?,
+    )?;
+    if copied_site != parent_site_id {
+        return Err(Error::Misuse(
+            "branch::fork_file: the copy's site id is not main's".into(),
+        ));
+    }
+    let clocks: Vec<String> = all(
+        &tx,
+        "SELECT name FROM sqlite_master \
+         WHERE type = 'table' AND name LIKE '%\\_\\_crsql\\_clock' ESCAPE '\\' ORDER BY name",
+        (),
+    )
+    .await?
+    .iter()
+    .map(|r| text(&r[0]))
+    .collect::<Result<_>>()?;
+
+    // The version main was at in this snapshot, computed as cr-sqlite does.
+    let version = {
+        let unions = clocks
+            .iter()
+            .map(|t| format!("SELECT max(db_version) AS v FROM {}", ident(t)))
+            .chain(std::iter::once(
+                "SELECT value AS v FROM crsql_master WHERE key = 'pre_compact_dbversion'"
+                    .to_string(),
+            ))
+            .collect::<Vec<_>>()
+            .join(" UNION ALL ");
+        match one(
+            &tx,
+            &format!("SELECT coalesce(max(v), 0) FROM ({unions})"),
+            (),
+        )
+        .await?
+        {
+            Value::Integer(v) => v,
+            other => {
+                return Err(Error::Misuse(format!(
+                    "branch::fork_file: unexpected db version {other:?}"
+                )))
+            }
+        }
+    };
+
+    // main's own writes become an ordinary peer's, and the copy gets a site
+    // id of its own.
+    let ordinal = int(&one(&tx, "SELECT max(ordinal) + 1 FROM crsql_site_id", ()).await?)?;
+    tx.execute(
+        "UPDATE crsql_site_id SET ordinal = ? WHERE ordinal = 0",
+        params![ordinal],
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO crsql_site_id (site_id, ordinal) VALUES (randomblob(16), 0)",
+        (),
+    )
+    .await?;
+    for clock in &clocks {
+        tx.execute(
+            &format!("UPDATE {} SET site_id = ? WHERE site_id = 0", ident(clock)),
+            params![ordinal],
+        )
+        .await?;
+    }
+
+    // What fork() leaves: the bookkeeping, and none of main's own.
+    tx.execute(&format!("DROP TABLE IF EXISTS {MERGES_TABLE}"), ())
+        .await?;
+    tx.execute(
+        &format!("CREATE TABLE IF NOT EXISTS {META_TABLE} (key TEXT PRIMARY KEY, value)"),
+        (),
+    )
+    .await?;
+    let marks = Marks::current(&tx).await?;
+    for (key, value) in [
+        ("parent_site_id", Value::Blob(parent_site_id)),
+        ("base_version", Value::Integer(version)),
+        ("merged_version", Value::Integer(0)),
+        ("jobs_mark", Value::Integer(marks.jobs)),
+        ("events_mark", Value::Integer(marks.events)),
+    ] {
+        set_meta(&tx, key, value).await?;
+    }
+    tx.commit().await?;
+    info(&copy).await
+}
+
 /// Describe a branch: its parent, how far it has seen the parent, and which
 /// tables it tracks.
 pub async fn info(branch: &Connection) -> Result<BranchInfo> {

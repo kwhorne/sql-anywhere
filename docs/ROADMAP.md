@@ -98,7 +98,8 @@ engine wherever possible.
       no deletes, how far embeddings may move, …) so harmless changes merge
       on their own. See [docs/BRANCHES.md](BRANCHES.md); verified
       (`sqlanywhere/tests/branch.rs`).
-      Next: a file-level fork for large databases, and branches of a `sqld`
+      `fork_file` forks a large database by copying the file (~19× faster at
+      20k rows). Next: branches of a `sqld`
       namespace over HTTP.
 - [x] **Live queries** — a query result that keeps itself current and returns a
       row-level diff (inserted / updated / deleted) instead of a fresh result,

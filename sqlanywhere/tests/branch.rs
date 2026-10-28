@@ -589,3 +589,115 @@ async fn has_jobs_table(conn: &Connection) -> bool {
     .await
         == Value::Integer(1)
 }
+
+async fn open_path(ext: &str, path: &str) -> Connection {
+    let db = Builder::new_local(path).build().await.unwrap();
+    let conn = db.connect().unwrap();
+    conn.load_extension_enable().unwrap();
+    conn.load_extension(ext, Some("sqlite3_crsqlite_init"))
+        .unwrap();
+    conn.load_extension_disable().unwrap();
+    conn
+}
+
+/// The same writes on a branch made by `fork` and one made by `fork_file`
+/// must look the same to diff, merge and pull.
+#[tokio::test]
+async fn fork_file_makes_the_same_branch_as_fork() {
+    let Some(ext) = extension() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("branch.db");
+    let path = path.to_str().unwrap();
+    // Two identical parents, one per kind of fork.
+    let (main_a, main_b) = (main_db(&ext).await, main_db(&ext).await);
+    let by_rows = open(&ext).await;
+    branch::fork(&main_a, &by_rows).await.unwrap();
+    // main's record of what its branches carried is main's, not the new one's.
+    main_b
+        .execute(
+            "CREATE TABLE sqlanywhere_branch_merges \
+             (branch BLOB PRIMARY KEY, jobs_mark INTEGER NOT NULL, events_mark INTEGER NOT NULL)",
+            (),
+        )
+        .await
+        .unwrap();
+    let info = branch::fork_file(&main_b, path).await.unwrap();
+    let by_file = open_path(&ext, path).await;
+
+    assert_eq!(info.tracked_tables, ["docs"]);
+    assert_eq!(info.untracked_tables, ["audit"]);
+    assert_eq!(info, branch::info(&by_file).await.unwrap());
+    assert_eq!(
+        scalar(
+            &by_file,
+            "SELECT count(*) FROM sqlite_master WHERE name = 'sqlanywhere_branch_merges'"
+        )
+        .await,
+        Value::Integer(0)
+    );
+    assert_eq!(
+        info.parent_site_id,
+        match scalar(&main_b, "SELECT crsql_site_id()").await {
+            Value::Blob(b) => b,
+            other => panic!("{other:?}"),
+        }
+    );
+    assert_eq!(
+        Value::Integer(info.base_version),
+        scalar(&main_b, "SELECT crsql_db_version()").await
+    );
+    assert_ne!(
+        scalar(&by_file, "SELECT crsql_site_id()").await,
+        scalar(&main_b, "SELECT crsql_site_id()").await,
+        "the copy has a site id of its own"
+    );
+    // The point of the rewrite: main's history is main's, not the branch's.
+    assert!(branch::diff(&main_b, &by_file).await.unwrap().is_empty());
+    assert_eq!(body(&by_file, 2).await.as_deref(), Some("beta beta"));
+    assert_eq!(
+        nearest(&by_file, "gamma gamma").await.as_deref(),
+        Some("gamma gamma")
+    );
+
+    // Same writes on both branches and both parents.
+    for (main, br) in [(&main_a, &by_rows), (&main_b, &by_file)] {
+        put(br, 2, "beta rewritten entirely").await;
+        put(br, 4, "delta delta").await;
+        br.execute("DELETE FROM docs WHERE id = 3", ())
+            .await
+            .unwrap();
+        put(main, 1, "alpha edited on main").await;
+        put(br, 1, "alpha edited on the branch").await;
+    }
+    let (diff_a, diff_b) = (
+        branch::diff(&main_a, &by_rows).await.unwrap(),
+        branch::diff(&main_b, &by_file).await.unwrap(),
+    );
+    assert_eq!(diff_a.rows, diff_b.rows);
+    assert_eq!(diff_a.conflicts, diff_b.conflicts);
+    assert!(!diff_b.conflicts.is_empty());
+
+    let (merged_a, merged_b) = (
+        branch::merge(&main_a, &by_rows).await.unwrap(),
+        branch::merge(&main_b, &by_file).await.unwrap(),
+    );
+    assert_eq!(merged_a.changes_applied, merged_b.changes_applied);
+    assert_eq!(merged_a.conflicts, merged_b.conflicts);
+    for id in 1..=4 {
+        assert_eq!(body(&main_a, id).await, body(&main_b, id).await, "doc {id}");
+    }
+    assert!(branch::diff(&main_b, &by_file).await.unwrap().is_empty());
+
+    // And main's newer writes reach the branch by pull.
+    put(&main_b, 5, "epsilon from main").await;
+    branch::pull(&main_b, &by_file).await.unwrap();
+    assert_eq!(
+        body(&by_file, 5).await.as_deref(),
+        Some("epsilon from main")
+    );
+    assert!(branch::diff(&main_b, &by_file).await.unwrap().is_empty());
+
+    // A path that exists is refused rather than overwritten.
+    let err = branch::fork_file(&main_b, path).await.unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err}");
+}

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`branch::fork_file(&main, path)`: fork a large database by copying the
+  file.** `VACUUM INTO` takes one consistent page-level copy, and the copy is
+  given an identity of its own before cr-sqlite opens it: main's clock rows
+  move from site ordinal 0 (which means "this database") to an ordinal for
+  main's site id, ordinal 0 gets a new site id, and the branch bookkeeping
+  records the version main was at in the snapshot. Without that, the first diff
+  of a copied file would offer every row main ever wrote. `diff`, `merge` and
+  `pull` treat it exactly like a `fork`; 20,000 rows fork in 16 ms instead of
+  309 ms. See [docs/BRANCHES.md](docs/BRANCHES.md#forking-a-large-database).
 - **`vector_index_stats('index')`.** A SQL function in the engine that
   describes a DiskANN index as JSON: its parameters with defaults filled in
   (metric, vector type, dimensions, `compress_neighbors`, block size, maximum

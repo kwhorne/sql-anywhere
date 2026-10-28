@@ -5,6 +5,21 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`sqlanywhere::compare`: what changed between two versions of a table, and
+  how far its embeddings moved.** `compare::table(&conn, table, before,
+  after)` compares a table with itself in an attached schema (a namespace at a
+  moment from `/at`, an older copy of the file) and returns every row
+  inserted, updated or deleted, the columns that differ with before and after,
+  and the cosine distance for vector columns; `TableDiff::moved(column)` lists
+  rows by how far their vector moved. Rows match by primary key or rowid,
+  columns by name. No CRRs or history needed; works on a local file and,
+  inside a transaction, on `sqld`. See
+  [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md#what-changed-and-what-changed-meaning).
+
 ## [0.8.0] - 2026-10-28
 
 Branches and live queries, made safe to leave running on their own. Jobs a
@@ -668,6 +683,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2

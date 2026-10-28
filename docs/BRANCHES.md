@@ -73,6 +73,7 @@ open it: a file beside the parent, a temp file, or `:memory:`.
 | Function | Does |
 | --- | --- |
 | `fork(main, branch)` | Copy main's schema and data into an empty database and mark it as main's branch. |
+| `fork_file(main, path)` | The same, by copying the file: for large databases (below). |
 | `diff(main, branch)` | List the rows the branch changed since the fork or the last merge, beside main's current values, and the conflicts a merge would hit. Read-only. |
 | `merge(main, branch)` | Apply those changes to main, and enqueue and publish the branch's jobs and events there. Report every conflict and which side won. |
 | `merge_if(main, branch, policy)` | The same, only if the diff passes a `MergePolicy`; otherwise write nothing and return the diff with every violation. |
@@ -138,6 +139,35 @@ pending; `Gate::Held` returns the diff that was checked, and each `Violation`
 prints as a sentence for a review queue. `MergePolicy::check(&diff)` is public,
 for a caller that wants to add its own rules before deciding.
 
+## Forking a large database
+
+`fork` replays main's history into the branch one `crsql_changes` row at a
+time, which is fine for the databases an agent works on and slow for a large
+one. `fork_file(&main, "branch.db")` copies the file instead, with `VACUUM
+INTO` (one consistent snapshot, page by page), and then gives the copy an
+identity of its own. Open the file with the extension loaded and use it like
+any branch:
+
+```rust
+let info = branch::fork_file(&main, "agent.db").await?;
+let agent = open_with_crsqlite("agent.db").await?;   // your own helper
+branch::diff(&main, &agent).await?;                   // empty: nothing written yet
+```
+
+Copying is not enough on its own. cr-sqlite marks a database's own writes
+with site ordinal 0, so a copied file still believes every row main ever wrote
+is its own, and the first `diff` would offer the whole database back. Before
+anything opens the copy with cr-sqlite, `fork_file` moves those clock rows to
+an ordinal for main's site id, gives ordinal 0 a new site id, records the
+version main was at in the snapshot (computed from the copy's clock tables, as
+cr-sqlite computes it), and writes the same bookkeeping `fork` does. `diff`,
+`merge` and `pull` cannot tell the two kinds of fork apart, and the test runs
+the same writes through both and compares.
+
+With 20,000 rows, `fork` took 309 ms and `fork_file` 16 ms (release build,
+Apple Silicon). The rewrite is one `UPDATE` per tracked table, so its cost
+grows with the clock rows, without copying any data a second time.
+
 ## Semantics
 
 **Tracked and untracked tables.** Only tables that are CRRs on main are tracked.
@@ -171,10 +201,8 @@ writes, and triggers on the receiving side fire for them.
 
 ## Limits
 
-- The fork copies through `crsql_changes`, one statement per change. It is
-  meant for databases an application or an agent works on, not for cloning a
-  large production database; a file-level copy with a fresh site id is the
-  faster path, and is not built yet.
+- `fork_file` needs `main` to be a local database, and the copy is a full
+  copy: it costs the file's size on disk, not a copy-on-write clone.
 - `merge` and `pull` run against two local connections. Branching a database
   served by `sqld`, and a `sqld` endpoint for it, are not built yet.
 - Schema changes on either side after the fork are not carried. Fork again after

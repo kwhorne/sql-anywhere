@@ -72,6 +72,13 @@ engine wherever possible.
 - [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
       ~5.5× smaller). Next: auto-select a default based on index size and a
       recall/size knob. *(shipped opt-in; auto-default still open)*
+- [x] **Interests: standing vector queries** — register a vector and a
+      distance, and every write that puts a row's vector within reach
+      publishes on the pub/sub contract, in the same transaction, whoever
+      wrote it (app, embedding worker, merge, replica's primary). See
+      [docs/INTERESTS.md](INTERESTS.md); verified
+      (`sqlanywhere/tests/interests.rs`). Next: a vector index over the
+      interests themselves for very many of them.
 - [x] **Looking inside a DiskANN index** — `vector_index_stats('idx')` returns
       the index's parameters, node and neighbour counts and size as JSON;
       every node a search visits counts as a row read (`rows_read`); and
@@ -99,7 +106,8 @@ engine wherever possible.
       no deletes, how far embeddings may move, …) so harmless changes merge
       on their own. See [docs/BRANCHES.md](BRANCHES.md); verified
       (`sqlanywhere/tests/branch.rs`).
-      Next: a file-level fork for large databases, and branches of a `sqld`
+      `fork_file` forks a large database by copying the file (~19× faster at
+      20k rows). Next: branches of a `sqld`
       namespace over HTTP.
 - [x] **Live queries** — a query result that keeps itself current and returns a
       row-level diff (inserted / updated / deleted) instead of a fresh result,

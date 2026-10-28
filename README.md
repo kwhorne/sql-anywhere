@@ -366,6 +366,11 @@ in-repo specs and guides below are the source references:
 - [Vector search & local RAG guide](docs/VECTOR_SEARCH.md) — why / how / examples
 - [CRDT offline merge (cr-sqlite)](docs/CRDT.md) — conflict-free offline multi-writer sync (experimental)
 - [Collaborative vector index](docs/COLLABORATIVE_VECTOR.md) — CRDT × vector search: a shared semantic index that syncs offline (experimental)
+- [Database branches](docs/BRANCHES.md) — fork, diff (with how far each embedding moved), merge and pull over CRDT (experimental)
+- [Embedding columns](docs/EMBEDDING_COLUMNS.md) — a vector column kept in step with a text column by background workers on the queue
+- [Live queries](docs/LIVE_QUERIES.md) — a result that keeps itself current and returns a row-level diff
+- [Querying the past](docs/TIME_TRAVEL.md) — any moment in the bottomless backup as a read-only namespace you can `ATTACH`
+- [Storage contracts](docs/contracts/README.md) — the queue / cache / pub-sub SQL as executable specs, compiled to a typed API
 - [User guide](docs/USER_GUIDE.md) · [Design overview](docs/DESIGN.md) · [Consistency model](docs/CONSISTENCY_MODEL.md)
 - Protocol specs: [Hrana 3](docs/HRANA_3_SPEC.md), [HTTP v2](docs/HTTP_V2_SPEC.md), [Admin API](docs/ADMIN_API.md)
 - C engine extensions: [sqlanywhere_extensions.md](sqlanywhere-sqlite3/doc/sqlanywhere_extensions.md)
@@ -381,7 +386,7 @@ in-repo specs and guides below are the source references:
 ## Changelog & roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) for the release history (current release:
-**0.6.1**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
+**0.7.0**) and [docs/ROADMAP.md](docs/ROADMAP.md) for where SQL Anywhere is
 headed next.
 
 ## Contributing

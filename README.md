@@ -369,6 +369,7 @@ in-repo specs and guides below are the source references:
 - [Database branches](docs/BRANCHES.md) — fork, diff (with how far each embedding moved), merge and pull over CRDT (experimental)
 - [Embedding columns](docs/EMBEDDING_COLUMNS.md) — a vector column kept in step with a text column by background workers on the queue
 - [Live queries](docs/LIVE_QUERIES.md) — a result that keeps itself current and returns a row-level diff
+- [Interests](docs/INTERESTS.md) — standing vector queries: publish an event when a row's vector lands near one you registered
 - [Querying the past](docs/TIME_TRAVEL.md) — any moment in the bottomless backup as a read-only namespace you can `ATTACH`
 - [Storage contracts](docs/contracts/README.md) — the queue / cache / pub-sub SQL as executable specs, compiled to a typed API
 - [User guide](docs/USER_GUIDE.md) · [Design overview](docs/DESIGN.md) · [Consistency model](docs/CONSISTENCY_MODEL.md)

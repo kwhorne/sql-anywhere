@@ -37,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns by name. No CRRs or history needed; works on a local file and,
   inside a transaction, on `sqld`. See
   [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md#what-changed-and-what-changed-meaning).
+- **Interests: standing vector queries.** `Interests::on(table, column)`
+  registers vectors with a cosine distance (`subscribe`, or `subscribe_text`
+  through an embedder), and every write that puts a row's vector within reach
+  of one publishes an event on its channel through the pub/sub contract:
+  `{"table", "column", "rowid", "interest", "distance"}`, nearest first. Two
+  triggers do the matching, so it works whoever writes the vector (the
+  application, an embedding column worker, a branch merge, an embedded
+  replica's primary), in the same transaction as the write; a value that is not
+  a vector of the right size matches nothing rather than failing the write.
+  `matching(rowid)` shows what a row matches now. See
+  [docs/INTERESTS.md](docs/INTERESTS.md).
 
 ### Fixed
 

@@ -96,8 +96,10 @@ engine wherever possible.
       writes, other connections, and embedded replica sync. See
       [docs/LIVE_QUERIES.md](LIVE_QUERIES.md); verified
       (`sqlanywhere/tests/live.rs`, and against a real primary in
-      `embedded_replica::live_query_follows_replica_sync`). Next: push diffs
-      from `sqld` to remote clients over Hrana.
+      `embedded_replica::live_query_follows_replica_sync`). With `live::track`
+      a live query re-runs only for writes to the tables it reads, found from
+      its own `EXPLAIN`, on replicas too. Next: push diffs from `sqld` to
+      remote clients over Hrana.
 - [ ] **Selective / partial replication** — replicate only rows matching a
       predicate (per-user / per-tenant) instead of the whole database.
       *(high effort)*

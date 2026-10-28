@@ -5,6 +5,31 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Live queries that watch only their own tables.** `live::track(&conn,
+  table)` gives a table triggers that bump its version in
+  `sqlanywhere_live_tables`; a live query whose tables are all tracked compares
+  those versions instead of the file's counters, so writes to other tables (a
+  queue, a cache, embedding jobs) no longer make it re-run. The tables are read
+  from the query's own `EXPLAIN`, through views, joins and covering indexes;
+  anything that cannot be traced (an untracked or virtual table, another
+  schema) keeps the old whole-file watch, and `LiveQuery::watched_tables` says
+  which applies. The versions travel with the data, so other connections and
+  embedded replicas are covered too. See
+  [docs/LIVE_QUERIES.md](docs/LIVE_QUERIES.md#watching-only-the-tables-a-query-reads).
+
+### Fixed
+
+- **A live query noticed its own connection's schema changes only by chance.**
+  `DROP TABLE` or `ALTER TABLE` on the live query's own connection moves
+  neither `data_version` nor `total_changes`; live queries now also compare
+  `schema_version`.
+- **`EXPLAIN SELECT …` on an embedded replica went to the primary.** It is now
+  classified as a read and answered from the replica's own file.
+
 ## [0.7.0] - 2026-10-10
 
 SQL Anywhere's pieces, composed into things they could not do apart, and a
@@ -617,6 +642,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2
 [0.6.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.1

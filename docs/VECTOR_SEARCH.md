@@ -17,6 +17,7 @@ retrieval. It explains *why* each exists, *how* to use it, and gives runnable
 - [3. Quantization for the edge](#3-quantization-for-the-edge)
 - [4. Hybrid search (vector + keyword)](#4-hybrid-search-vector--keyword)
 - [5. Putting it together: local RAG](#5-putting-it-together-local-rag)
+- [6. Looking inside an index](#6-looking-inside-an-index)
 - [Reference](#reference)
 
 ## Why
@@ -226,6 +227,60 @@ Because it is just an embedded database, the same pipeline runs inside an
 README](../README.md#replication--embedded-replicas)): sync documents from a
 primary, then embed, index and retrieve entirely on-device.
 
+## 6. Looking inside an index
+
+**Why.** `search_l`, `max_neighbors` and `compress_neighbors` trade recall for
+speed and size, and a search that returns rows says nothing about how good
+they are or how much work they took. Tuning needs three numbers: what the
+index is, how much a search reads, and how often it finds the true nearest
+neighbours.
+
+**What the index is.** `vector_index_stats('index')` returns a JSON object:
+
+```sql
+SELECT vector_index_stats('movies_idx');
+-- {"type":"diskann","metric":"cosine","vector_type":"float32","dims":384,
+--  "compress_neighbors":"float8","format":3,"block_size":...,"max_neighbors":...,
+--  "alpha":1.2,"search_l":200,"insert_l":70,
+--  "nodes":12000,"edges":...,"avg_neighbors":...,
+--  "nodes_without_neighbors":0,"nodes_full":...,"bytes":...}
+
+SELECT json_extract(vector_index_stats('movies_idx'), '$.bytes') / 1024 AS kb;
+```
+
+The parameters come with their defaults filled in. `nodes` is one per indexed
+row; `avg_neighbors` against `max_neighbors` shows how connected the graph is,
+and `nodes_without_neighbors` above 0 in a larger index means some rows can
+only be found as a starting point. `bytes` is the size of the node blocks,
+the number `compress_neighbors` shrinks. It reads every node block once, so it
+is a tuning tool, not something to call per query. It works from any client,
+`sqld` included, and accepts `schema.index`.
+
+**How much a search reads.** Each node block `vector_top_k` visits counts as a
+row read by the statement: `SQLANYWHERE_STMTSTATUS_ROWS_READ` from C,
+`rows_read` in every Hrana result from `sqld`, and `Rows read` under `.stats on`
+in the shell. With 500 points, a top-5 search read 24 rows at `search_l=8` and
+206 at the default `search_l=200`.
+
+**How often it is right.** Recall@k is the share of the exact k nearest
+neighbours the index returns. Measure it in plain SQL, with the table's own
+rows as queries (here every tenth):
+
+```sql
+WITH q AS (SELECT id, emb FROM movies WHERE id % 10 = 0)
+SELECT sum(a.id IN (SELECT e.id FROM (
+                      SELECT m.id, vector_distance_cos(m.emb, q.emb) AS d
+                      FROM movies AS m ORDER BY d LIMIT 10) AS e))
+       / (10.0 * (SELECT count(*) FROM q)) AS recall_at_10
+FROM q, vector_top_k('movies_idx', q.emb, 10) AS a;
+```
+
+`vector_top_k` takes its query vector from a column of another table here,
+once per row: a top-k per row, in a join or a correlated subquery. The exact
+neighbours come from a full scan, so measure on a sample. The distance is a
+selected column rather than an `ORDER BY` expression because SQLite does not
+let an `ORDER BY` inside an `IN (...)` subquery refer to the outer query.
+
 ## Reference
 
 | Function | Purpose |
@@ -235,7 +290,8 @@ primary, then embed, index and retrieve entirely on-device.
 | `vector_distance_l2(a, b)` | Euclidean (L2) distance |
 | `vector_distance_cos(a, b)` | Cosine distance (0 = identical, 2 = opposite) |
 | `sqlanywhere_vector_idx(col, 'metric=...', 'compress_neighbors=...', ...)` | Declare a DiskANN index in `CREATE INDEX` |
-| `vector_top_k('index_name', query_vec, k)` | ANN search returning the `k` nearest row ids |
+| `vector_top_k('index_name', query_vec, k)` | ANN search returning the `k` nearest row ids; `query_vec` may be a column of an earlier table in the join |
+| `vector_index_stats('index_name')` | The index's parameters, node and neighbour counts and size, as JSON |
 | `sqlanywhere::embed(text, dims)` (Rust) | Reference lexical embedder → vector literal |
 
 Index parameters: `type=diskann`, `metric=cosine|l2`,

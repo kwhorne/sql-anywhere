@@ -71,8 +71,14 @@ engine wherever possible.
 - [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
       ~5.5× smaller). Next: auto-select a default based on index size and a
       recall/size knob. *(shipped opt-in; auto-default still open)*
-- [ ] **`EXPLAIN` for the DiskANN index** — expose visited-node counts and a
-      recall estimate for query tuning. *(medium effort)*
+- [x] **Looking inside a DiskANN index** — `vector_index_stats('idx')` returns
+      the index's parameters, node and neighbour counts and size as JSON;
+      every node a search visits counts as a row read (`rows_read`); and
+      recall@k is measured in plain SQL, now that `vector_top_k` takes its
+      query from another table's column. See
+      [docs/VECTOR_SEARCH.md](VECTOR_SEARCH.md#6-looking-inside-an-index);
+      verified (`sqlanywhere/tests/vector.rs`). Next: a recall/size knob that
+      picks `compress_neighbors` and `search_l` from a target.
 
 ### Edge / local-first
 - [x] **CRDT offline merge (experimental)** — the vendored cr-sqlite (`ext/crr`)

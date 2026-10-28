@@ -167,6 +167,9 @@ void vectorConvert(const Vector *, Vector *);
 /* Detect type and dimension of vector provided with first parameter of sqlite3_value * type */
 int detectVectorParameters(sqlite3_value *, int, int *, int *, char **);
 
+/* vector_index_stats(INDEX), implemented in vectorIndex.c */
+void vectorIndexStatsFunc(sqlite3_context *, int, sqlite3_value **);
+
 static inline unsigned serializeF32(unsigned char *pBuf, float value){
   u32 *p = (u32 *)&value;
   pBuf[0] = *p & 0xFF;

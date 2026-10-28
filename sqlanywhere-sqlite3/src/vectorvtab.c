@@ -164,7 +164,9 @@ static int vectorVtabBestIndex(
   sqlite3_index_info *pIdxInfo
 ){
   const struct sqlite3_index_constraint *pConstraint;
-  int i;
+  int aUsable[3] = { -1, -1, -1 };  /* constraint for index, vector, k */
+  int unusable = 0;                  /* bitmask of arguments known only later */
+  int i, iArg, nArg = 0;
 
   pIdxInfo->estimatedCost = (double)1;
   pIdxInfo->estimatedRows = 100;
@@ -172,21 +174,34 @@ static int vectorVtabBestIndex(
 
   pConstraint = pIdxInfo->aConstraint;
   for(i=0; i<pIdxInfo->nConstraint; i++, pConstraint++){
-    if( pConstraint->usable == 0 ) continue;
     if( pConstraint->op != SQLITE_INDEX_CONSTRAINT_EQ ) continue;
     switch( pConstraint->iColumn ){
-      case VECTOR_COLUMN_IDX:
-        pIdxInfo->aConstraintUsage[i].argvIndex = 1;
-        pIdxInfo->aConstraintUsage[i].omit = 1;
-        break;
-      case VECTOR_COLUMN_VECTOR:
-        pIdxInfo->aConstraintUsage[i].argvIndex = 2;
-        pIdxInfo->aConstraintUsage[i].omit = 1;
-        break;
-      case VECTOR_COLUMN_K:
-        pIdxInfo->aConstraintUsage[i].argvIndex = 3;
-        pIdxInfo->aConstraintUsage[i].omit = 1;
-        break;
+      case VECTOR_COLUMN_IDX:    iArg = 0; break;
+      case VECTOR_COLUMN_VECTOR: iArg = 1; break;
+      case VECTOR_COLUMN_K:      iArg = 2; break;
+      default: continue;
+    }
+    if( pConstraint->usable ){
+      aUsable[iArg] = i;
+    }else{
+      unusable |= 1 << iArg;
+    }
+  }
+  /*
+  ** An argument that refers to a table later in the join, as in
+  **   SELECT ... FROM queries AS q, vector_top_k('idx', q.v, 10)
+  ** is not usable in this plan. Refuse the plan rather than search without
+  ** it, so the planner puts that table first and passes its column in.
+  */
+  for(iArg=0; iArg<3; iArg++){
+    if( aUsable[iArg] < 0 && (unusable & (1 << iArg)) ){
+      return SQLITE_CONSTRAINT;
+    }
+  }
+  for(iArg=0; iArg<3; iArg++){
+    if( aUsable[iArg] >= 0 ){
+      pIdxInfo->aConstraintUsage[aUsable[iArg]].argvIndex = ++nArg;
+      pIdxInfo->aConstraintUsage[aUsable[iArg]].omit = 1;
     }
   }
   return SQLITE_OK;

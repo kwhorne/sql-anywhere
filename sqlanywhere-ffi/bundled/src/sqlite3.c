@@ -86316,6 +86316,9 @@ void vectorConvert(const Vector *, Vector *);
 /* Detect type and dimension of vector provided with first parameter of sqlite3_value * type */
 int detectVectorParameters(sqlite3_value *, int, int *, int *, char **);
 
+/* vector_index_stats(INDEX), implemented in vectorIndex.c */
+void vectorIndexStatsFunc(sqlite3_context *, int, sqlite3_value **);
+
 static inline unsigned serializeF32(unsigned char *pBuf, float value){
   u32 *p = (u32 *)&value;
   pBuf[0] = *p & 0xFF;
@@ -216016,6 +216019,8 @@ SQLITE_PRIVATE void sqlite3RegisterVectorFunctions(void){
     FUNCTION(vector_distance_l2,  2, 0, 0, vectorDistanceL2Func),
 
     FUNCTION(sqlanywhere_vector_idx,  -1, 0, 0, sqlanywhereVectorIdx),
+    /* reads the index, so it is neither constant nor deterministic */
+    VFUNCTION(vector_index_stats, 1, 0, 0, vectorIndexStatsFunc),
   };
   sqlite3InsertBuiltinFuncs(aVectorFuncs, ArraySize(aVectorFuncs));
 }
@@ -220036,6 +220041,170 @@ void vectorIndexCursorClose(sqlite3 *db, VectorIdxCursor *pCursor, int *nReads, 
   sqlite3DbFree(db, pCursor);
 }
 
+static const char *vectorIndexTypeName(int type){
+  switch( type ){
+    case VECTOR_TYPE_FLOAT32:   return "float32";
+    case VECTOR_TYPE_FLOAT64:   return "float64";
+    case VECTOR_TYPE_FLOAT1BIT: return "float1bit";
+    case VECTOR_TYPE_FLOAT8:    return "float8";
+    case VECTOR_TYPE_FLOAT16:   return "float16";
+    case VECTOR_TYPE_FLOATB16:  return "floatb16";
+  }
+  return "unknown";
+}
+
+/*
+** Implementation of vector_index_stats(INDEX).
+**
+** Describes a DiskANN index as a JSON object, for tuning it: the parameters it
+** was built with (defaults filled in), how many nodes it holds, how full their
+** neighbour lists are, and how many bytes its node blocks take. It reads every
+** node block once and changes nothing.
+**
+** The number of nodes a search visits is not here: every node block a
+** vector_top_k() search reads counts as a row read by its statement
+** (SQLANYWHERE_STMTSTATUS_ROWS_READ, and rows_read in Hrana results).
+*/
+void vectorIndexStatsFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+  sqlite3 *db = sqlite3_context_db_handle(context);
+  const char *zIdxFullName;
+  char *zIdxDbSNameAlloc = NULL;
+  char *zIdxNameAlloc = NULL;
+  const char *zIdxDbSName = NULL;
+  const char *zIdxName = NULL;
+  int iDb = -1;
+  int nMaxEdges;
+  u64 compress, metric;
+  double alpha;
+  i64 nNodes = 0, nEdges = 0, nBytes = 0, nNoEdges = 0, nFull = 0;
+  DiskAnnIndex *pDiskAnn = NULL;
+  sqlite3_stmt *pStmt = NULL;
+  char *zSql = NULL;
+  sqlite3_str *pOut = NULL;
+  VectorIdxParams idxParams;
+  int rc;
+  vectorIdxParamsInit(&idxParams, NULL, 0);
+  UNUSED_PARAMETER(argc);
+
+  if( sqlite3_value_type(argv[0]) != SQLITE_TEXT ){
+    sqlite3_result_error(context, "vector_index_stats: the argument must be the name of a vector index", -1);
+    return;
+  }
+  zIdxFullName = (const char*)sqlite3_value_text(argv[0]);
+  if( getIndexNameParts(db, zIdxFullName, &zIdxDbSNameAlloc, &zIdxNameAlloc) != SQLITE_OK ){
+    sqlite3_result_error(context, "vector_index_stats: failed to parse index name", -1);
+    goto out;
+  }
+  if( zIdxDbSNameAlloc == NULL && zIdxNameAlloc == NULL ){
+    zIdxDbSName = "main";
+    zIdxName = zIdxFullName;
+  }else{
+    zIdxDbSName = zIdxDbSNameAlloc;
+    zIdxName = zIdxNameAlloc;
+    iDb = sqlite3FindDbName(db, zIdxDbSName);
+    if( iDb < 0 ){
+      sqlite3_result_error(context, "vector_index_stats: unknown schema", -1);
+      goto out;
+    }
+    // as in vectorIndexSearch: hold the schema's mutex while reading it
+    if( iDb != 1 ){
+      sqlite3BtreeEnter(db->aDb[iDb].pBt);
+    }
+  }
+
+  if( sqlite3FindIndex(db, zIdxName, zIdxDbSName) == NULL
+   || vectorIndexGetParameters(db, zIdxDbSName, zIdxName, &idxParams) != 0 ){
+    sqlite3_result_error(context, "vector_index_stats: not a vector index", -1);
+    goto out;
+  }
+  rc = diskAnnOpenIndex(db, zIdxDbSName, zIdxName, &idxParams, &pDiskAnn);
+  if( rc != SQLITE_OK ){
+    sqlite3_result_error(context, "vector_index_stats: failed to open diskann index", -1);
+    goto out;
+  }
+  nMaxEdges = nodeEdgesMaxCount(pDiskAnn);
+
+  zSql = sqlite3_mprintf("SELECT data FROM \"%w\".\"%w\"", zIdxDbSName, pDiskAnn->zShadow);
+  if( zSql == NULL ){
+    sqlite3_result_error_nomem(context);
+    goto out;
+  }
+  rc = sqlite3_prepare_v2(db, zSql, -1, &pStmt, NULL);
+  while( rc == SQLITE_OK && (rc = sqlite3_step(pStmt)) == SQLITE_ROW ){
+    BlobSpot spot;
+    int nBlob = sqlite3_column_bytes(pStmt, 0);
+    memset(&spot, 0, sizeof(spot));
+    spot.pBuffer = (u8*)sqlite3_column_blob(pStmt, 0);
+    spot.nBufferSize = nBlob;
+    nNodes++;
+    nBytes += nBlob;
+    if( spot.pBuffer != NULL && nBlob >= (int)(sizeof(u64) + sizeof(u16)) ){
+      u16 nNodeEdges = nodeBinEdges(pDiskAnn, &spot);
+      nEdges += nNodeEdges;
+      if( nNodeEdges == 0 ) nNoEdges++;
+      if( nNodeEdges >= nMaxEdges ) nFull++;
+    }else{
+      nNoEdges++;
+    }
+    rc = SQLITE_OK;
+  }
+  if( rc != SQLITE_DONE ){
+    sqlite3_result_error(context, sqlite3_errmsg(db), -1);
+    goto out;
+  }
+
+  compress = vectorIdxParamsGetU64(&idxParams, VECTOR_COMPRESS_NEIGHBORS_PARAM_ID);
+  // from the parameters, not the index: the index keeps it as a float, which
+  // would print 1.2 as 1.20000004768372
+  alpha = vectorIdxParamsGetF64(&idxParams, VECTOR_PRUNING_ALPHA_PARAM_ID);
+  if( alpha == 0 ){
+    alpha = VECTOR_PRUNING_ALPHA_DEFAULT;
+  }
+  metric = pDiskAnn->nDistanceFunc;
+  pOut = sqlite3_str_new(db);
+  sqlite3_str_appendf(pOut,
+    "{\"type\":\"diskann\",\"metric\":\"%s\",\"vector_type\":\"%s\",\"dims\":%d,"
+    "\"compress_neighbors\":",
+    metric == VECTOR_METRIC_TYPE_L2 ? "l2" : "cosine",
+    vectorIndexTypeName(pDiskAnn->nNodeVectorType),
+    pDiskAnn->nVectorDims);
+  if( compress == 0 ){
+    sqlite3_str_appendall(pOut, "null");
+  }else{
+    sqlite3_str_appendf(pOut, "\"%s\"", vectorIndexTypeName((int)compress));
+  }
+  sqlite3_str_appendf(pOut,
+    ",\"format\":%d,\"block_size\":%d,\"max_neighbors\":%d,\"alpha\":%!.15g,"
+    "\"search_l\":%d,\"insert_l\":%d,"
+    "\"nodes\":%lld,\"edges\":%lld,\"avg_neighbors\":%!.15g,"
+    "\"nodes_without_neighbors\":%lld,\"nodes_full\":%lld,\"bytes\":%lld}",
+    pDiskAnn->nFormatVersion, pDiskAnn->nBlockSize, nMaxEdges, alpha,
+    pDiskAnn->searchL, pDiskAnn->insertL,
+    nNodes, nEdges, nNodes > 0 ? (double)nEdges / (double)nNodes : 0.0,
+    nNoEdges, nFull, nBytes);
+  if( sqlite3_str_errcode(pOut) != SQLITE_OK ){
+    sqlite3_result_error_nomem(context);
+    goto out;
+  }
+  sqlite3_result_text(context, sqlite3_str_finish(pOut), -1, sqlite3_free);
+  pOut = NULL;
+
+out:
+  if( pOut != NULL ){
+    sqlite3_free(sqlite3_str_finish(pOut));
+  }
+  sqlite3_finalize(pStmt);
+  sqlite3_free(zSql);
+  if( pDiskAnn != NULL ){
+    diskAnnCloseIndex(pDiskAnn);
+  }
+  sqlite3DbFree(db, zIdxNameAlloc);
+  sqlite3DbFree(db, zIdxDbSNameAlloc);
+  if( iDb >= 0 && iDb != 1 ){
+    sqlite3BtreeLeave(db->aDb[iDb].pBt);
+  }
+}
+
 #endif /* !defined(SQLITE_OMIT_VECTOR) */
 
 /************** End of vectorIndex.c *****************************************/
@@ -220206,7 +220375,9 @@ static int vectorVtabBestIndex(
   sqlite3_index_info *pIdxInfo
 ){
   const struct sqlite3_index_constraint *pConstraint;
-  int i;
+  int aUsable[3] = { -1, -1, -1 };  /* constraint for index, vector, k */
+  int unusable = 0;                  /* bitmask of arguments known only later */
+  int i, iArg, nArg = 0;
 
   pIdxInfo->estimatedCost = (double)1;
   pIdxInfo->estimatedRows = 100;
@@ -220214,21 +220385,34 @@ static int vectorVtabBestIndex(
 
   pConstraint = pIdxInfo->aConstraint;
   for(i=0; i<pIdxInfo->nConstraint; i++, pConstraint++){
-    if( pConstraint->usable == 0 ) continue;
     if( pConstraint->op != SQLITE_INDEX_CONSTRAINT_EQ ) continue;
     switch( pConstraint->iColumn ){
-      case VECTOR_COLUMN_IDX:
-        pIdxInfo->aConstraintUsage[i].argvIndex = 1;
-        pIdxInfo->aConstraintUsage[i].omit = 1;
-        break;
-      case VECTOR_COLUMN_VECTOR:
-        pIdxInfo->aConstraintUsage[i].argvIndex = 2;
-        pIdxInfo->aConstraintUsage[i].omit = 1;
-        break;
-      case VECTOR_COLUMN_K:
-        pIdxInfo->aConstraintUsage[i].argvIndex = 3;
-        pIdxInfo->aConstraintUsage[i].omit = 1;
-        break;
+      case VECTOR_COLUMN_IDX:    iArg = 0; break;
+      case VECTOR_COLUMN_VECTOR: iArg = 1; break;
+      case VECTOR_COLUMN_K:      iArg = 2; break;
+      default: continue;
+    }
+    if( pConstraint->usable ){
+      aUsable[iArg] = i;
+    }else{
+      unusable |= 1 << iArg;
+    }
+  }
+  /*
+  ** An argument that refers to a table later in the join, as in
+  **   SELECT ... FROM queries AS q, vector_top_k('idx', q.v, 10)
+  ** is not usable in this plan. Refuse the plan rather than search without
+  ** it, so the planner puts that table first and passes its column in.
+  */
+  for(iArg=0; iArg<3; iArg++){
+    if( aUsable[iArg] < 0 && (unusable & (1 << iArg)) ){
+      return SQLITE_CONSTRAINT;
+    }
+  }
+  for(iArg=0; iArg<3; iArg++){
+    if( aUsable[iArg] >= 0 ){
+      pIdxInfo->aConstraintUsage[aUsable[iArg]].argvIndex = ++nArg;
+      pIdxInfo->aConstraintUsage[aUsable[iArg]].omit = 1;
     }
   }
   return SQLITE_OK;

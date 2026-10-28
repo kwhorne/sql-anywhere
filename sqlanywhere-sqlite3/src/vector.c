@@ -1268,6 +1268,8 @@ void sqlite3RegisterVectorFunctions(void){
     FUNCTION(vector_distance_l2,  2, 0, 0, vectorDistanceL2Func),
 
     FUNCTION(sqlanywhere_vector_idx,  -1, 0, 0, sqlanywhereVectorIdx),
+    /* reads the index, so it is neither constant nor deterministic */
+    VFUNCTION(vector_index_stats, 1, 0, 0, vectorIndexStatsFunc),
   };
   sqlite3InsertBuiltinFuncs(aVectorFuncs, ArraySize(aVectorFuncs));
 }

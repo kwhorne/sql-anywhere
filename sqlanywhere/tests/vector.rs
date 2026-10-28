@@ -351,3 +351,226 @@ async fn vector_index_persists_across_reopen() {
         assert_eq!(near, vec![1, 3]);
     }
 }
+
+/// `n` points in `dims` dimensions from a fixed linear congruential sequence,
+/// so every run builds the same index.
+async fn points(conn: &Connection, table: &str, index_params: &str, n: usize, dims: usize) {
+    conn.execute(
+        &format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY, v FLOAT32({dims}))"),
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute(
+        &format!("CREATE INDEX {table}_idx ON {table}(sqlanywhere_vector_idx(v{index_params}))"),
+        (),
+    )
+    .await
+    .unwrap();
+    let mut seed: u64 = 42;
+    for id in 1..=n {
+        let v: Vec<String> = (0..dims)
+            .map(|_| {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                format!("{:.4}", (seed >> 33) as f64 / (1u64 << 31) as f64 - 0.5)
+            })
+            .collect();
+        conn.execute(
+            &format!(
+                "INSERT INTO {table} VALUES ({id}, vector32('[{}]'))",
+                v.join(",")
+            ),
+            (),
+        )
+        .await
+        .unwrap();
+    }
+}
+
+async fn stat(conn: &Connection, index: &str, field: &str) -> String {
+    text(
+        conn,
+        &format!("SELECT json_extract(vector_index_stats('{index}'), '$.{field}') || ''"),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn vector_index_stats_describes_the_index() {
+    let conn = conn().await;
+    points(&conn, "pts", "", 120, 8).await;
+
+    // The parameters, with the defaults filled in.
+    assert_eq!(stat(&conn, "pts_idx", "type").await, "diskann");
+    assert_eq!(stat(&conn, "pts_idx", "metric").await, "cosine");
+    assert_eq!(stat(&conn, "pts_idx", "vector_type").await, "float32");
+    assert_eq!(stat(&conn, "pts_idx", "dims").await, "8");
+    assert_eq!(
+        text(
+            &conn,
+            "SELECT json_type(vector_index_stats('pts_idx'), '$.compress_neighbors')"
+        )
+        .await,
+        "null"
+    );
+    assert_eq!(stat(&conn, "pts_idx", "search_l").await, "200");
+    assert_eq!(stat(&conn, "pts_idx", "insert_l").await, "70");
+    assert_eq!(stat(&conn, "pts_idx", "alpha").await, "1.2");
+
+    // The graph: one node per row, every one connected, none past its limit.
+    let nodes: i64 = stat(&conn, "pts_idx", "nodes").await.parse().unwrap();
+    let edges: i64 = stat(&conn, "pts_idx", "edges").await.parse().unwrap();
+    let max: i64 = stat(&conn, "pts_idx", "max_neighbors")
+        .await
+        .parse()
+        .unwrap();
+    let avg: f64 = stat(&conn, "pts_idx", "avg_neighbors")
+        .await
+        .parse()
+        .unwrap();
+    assert_eq!(nodes, 120);
+    assert!(edges > 0 && max > 0);
+    assert!((avg - edges as f64 / nodes as f64).abs() < 1e-9);
+    assert!(avg <= max as f64, "{avg} > {max}");
+    assert_eq!(stat(&conn, "pts_idx", "nodes_without_neighbors").await, "0");
+    // Counted again from the node blocks themselves: a node's neighbour count
+    // is the little-endian u16 after its 8-byte rowid.
+    let mut rows = conn
+        .query("SELECT data FROM pts_idx_shadow", ())
+        .await
+        .unwrap();
+    let mut counts = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        let block = row.get::<Vec<u8>>(0).unwrap();
+        counts.push(u16::from_le_bytes([block[8], block[9]]) as i64);
+    }
+    assert_eq!(counts.iter().sum::<i64>(), edges);
+    let full: i64 = stat(&conn, "pts_idx", "nodes_full").await.parse().unwrap();
+    assert_eq!(full, counts.iter().filter(|&&c| c == max).count() as i64);
+    let block: i64 = stat(&conn, "pts_idx", "block_size").await.parse().unwrap();
+    assert_eq!(
+        stat(&conn, "pts_idx", "bytes").await,
+        (nodes * block).to_string(),
+        "every node is one block"
+    );
+
+    // It follows the table.
+    conn.execute("DELETE FROM pts WHERE id > 100", ())
+        .await
+        .unwrap();
+    assert_eq!(stat(&conn, "pts_idx", "nodes").await, "100");
+}
+
+#[tokio::test]
+async fn vector_index_stats_reports_the_options_an_index_was_built_with() {
+    let conn = conn().await;
+    points(&conn, "plain", "", 20, 64).await;
+    points(
+        &conn,
+        "tuned",
+        ", 'metric=l2', 'compress_neighbors=float8', 'search_l=50'",
+        20,
+        64,
+    )
+    .await;
+    assert_eq!(stat(&conn, "tuned_idx", "metric").await, "l2");
+    assert_eq!(
+        stat(&conn, "tuned_idx", "compress_neighbors").await,
+        "float8"
+    );
+    assert_eq!(stat(&conn, "tuned_idx", "search_l").await, "50");
+    // Compressed neighbour vectors keep as many neighbours in a smaller block.
+    for field in ["max_neighbors", "nodes"] {
+        assert_eq!(
+            stat(&conn, "tuned_idx", field).await,
+            stat(&conn, "plain_idx", field).await
+        );
+    }
+    let plain: i64 = stat(&conn, "plain_idx", "bytes").await.parse().unwrap();
+    let tuned: i64 = stat(&conn, "tuned_idx", "bytes").await.parse().unwrap();
+    assert!(tuned * 2 < plain, "{tuned} bytes compressed, {plain} plain");
+    // An explicit schema works too.
+    assert_eq!(stat(&conn, "main.tuned_idx", "metric").await, "l2");
+}
+
+#[tokio::test]
+async fn vector_index_stats_refuses_what_is_not_a_vector_index() {
+    let conn = conn().await;
+    points(&conn, "pts", "", 3, 4).await;
+    conn.execute("CREATE INDEX pts_id ON pts(id)", ())
+        .await
+        .unwrap();
+    for arg in ["'missing'", "'pts_id'", "42", "NULL", "'nowhere.pts_idx'"] {
+        let sql = format!("SELECT vector_index_stats({arg})");
+        // The error surfaces when the row is stepped, not when it is prepared.
+        let err = match conn.query(&sql, ()).await {
+            Err(e) => e,
+            Ok(mut rows) => rows.next().await.expect_err("an error"),
+        };
+        assert!(
+            err.to_string().contains("vector_index_stats"),
+            "{arg}: {err}"
+        );
+    }
+}
+
+/// The recall recipe in docs/VECTOR_SEARCH.md: how many of the exact nearest
+/// neighbours the index finds, measured with the table's own rows as queries.
+#[tokio::test]
+async fn recall_can_be_measured_in_sql() {
+    let conn = conn().await;
+    points(&conn, "pts", "", 300, 16).await;
+    let recall = real(
+        &conn,
+        "WITH q AS (SELECT id, v FROM pts WHERE id % 10 = 0)
+         SELECT sum(a.id IN (SELECT e.id FROM (
+                               SELECT p.id, vector_distance_cos(p.v, q.v) AS d
+                               FROM pts AS p ORDER BY d LIMIT 10) AS e))
+                / (10.0 * (SELECT count(*) FROM q))
+         FROM q, vector_top_k('pts_idx', q.v, 10) AS a",
+    )
+    .await;
+    assert!(recall > 0.9 && recall <= 1.0, "recall@10 = {recall}");
+}
+
+/// vector_top_k with its query vector taken from another table, once per row:
+/// in a join and in a correlated subquery. Its xBestIndex used to accept a
+/// plan without that argument, which SQLite refused as a malfunction.
+#[tokio::test]
+async fn vector_top_k_takes_its_query_from_another_table() {
+    let conn = conn().await;
+    points(&conn, "pts", "", 40, 8).await;
+    let mut expected = Vec::new();
+    for id in [5, 17, 33] {
+        expected.push(
+            ids(
+                &conn,
+                &format!(
+                    "SELECT a.id FROM vector_top_k('pts_idx', \
+                     (SELECT v FROM pts WHERE id = {id}), 3) AS a"
+                ),
+            )
+            .await,
+        );
+    }
+    let joined = names(
+        &conn,
+        "SELECT group_concat(a.id) FROM pts AS q, vector_top_k('pts_idx', q.v, 3) AS a \
+         WHERE q.id IN (5, 17, 33) GROUP BY q.id ORDER BY q.id",
+    )
+    .await;
+    let correlated = names(
+        &conn,
+        "SELECT (SELECT group_concat(id) FROM vector_top_k('pts_idx', q.v, 3)) \
+         FROM pts AS q WHERE q.id IN (5, 17, 33) ORDER BY q.id",
+    )
+    .await;
+    let expected: Vec<String> = expected
+        .iter()
+        .map(|ids| ids.iter().map(i64::to_string).collect::<Vec<_>>().join(","))
+        .collect();
+    assert_eq!(joined, expected);
+    assert_eq!(correlated, expected);
+}

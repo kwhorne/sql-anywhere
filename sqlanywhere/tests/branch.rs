@@ -4,7 +4,7 @@
 //! `scripts/build-crsqlite.sh`); the tests skip and pass when it is unset, so
 //! the main workspace CI is unaffected.
 
-use sqlanywhere::branch::{self, ChangeKind, Effect, Gate, MergePolicy, Side, Violation};
+use sqlanywhere::branch::{self, ChangeKind, Effect, Gate, Lens, MergePolicy, Side, Violation};
 use sqlanywhere::contracts::{pubsub, queue};
 use sqlanywhere::{embed, params, Builder, Connection, Value};
 
@@ -588,6 +588,142 @@ async fn has_jobs_table(conn: &Connection) -> bool {
     )
     .await
         == Value::Integer(1)
+}
+
+async fn ids(conn: &Connection, table: &str) -> Vec<i64> {
+    let mut rows = conn
+        .query(&format!("SELECT id FROM {table} ORDER BY id"), ())
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await.unwrap() {
+        out.push(r.get::<i64>(0).unwrap());
+    }
+    out
+}
+
+#[tokio::test]
+async fn a_partial_branch_holds_what_its_lens_selects() {
+    let Some(ext) = extension() else { return };
+    let main = main_db(&ext).await;
+    for (id, text) in [
+        (4, "delta"),
+        (5, "epsilon"),
+        (6, "zeta"),
+        (7, "eta"),
+        (8, "theta"),
+    ] {
+        put(&main, id, text).await;
+    }
+    main.execute_batch(
+        "CREATE TABLE tags (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '');
+         SELECT crsql_as_crr('tags');
+         INSERT INTO tags VALUES (1, 'red'), (2, 'blue');",
+    )
+    .await
+    .unwrap();
+    let even = Lens::new().rows("docs", "id % 2 = ?", params![0]).unwrap();
+    let br = open(&ext).await;
+    let info = branch::fork_lens(&main, &br, &even).await.unwrap();
+    assert_eq!(info.tracked_tables, ["docs", "tags"]);
+
+    // Only the even documents; a table the lens does not name, in full.
+    assert_eq!(ids(&br, "docs").await, [2, 4, 6, 8]);
+    assert_eq!(ids(&br, "tags").await, [1, 2]);
+    assert!(branch::diff(&main, &br).await.unwrap().is_empty());
+
+    // Writing and merging: what the branch does not hold is not deleted.
+    put(&br, 2, "beta edited on the branch").await;
+    put(&br, 10, "kappa, new on the branch").await;
+    let diff = branch::diff(&main, &br).await.unwrap();
+    assert_eq!(diff.rows.len(), 2);
+    branch::merge(&main, &br).await.unwrap();
+    assert_eq!(ids(&main, "docs").await, [1, 2, 3, 4, 5, 6, 7, 8, 10]);
+    assert_eq!(
+        body(&main, 2).await.as_deref(),
+        Some("beta edited on the branch")
+    );
+
+    // main moves on: a held row edited, another deleted, an odd row edited,
+    // and a new even row.
+    put(&main, 4, "delta edited on main").await;
+    main.execute("DELETE FROM docs WHERE id = 6", ())
+        .await
+        .unwrap();
+    put(&main, 3, "gamma edited on main").await;
+    put(&main, 12, "mu, new on main").await;
+    let report = branch::pull_lens(&main, &br, &even).await.unwrap();
+    assert!(report.changes_applied > 0);
+    // Held rows follow main, deletes too; the new even row arrives; the odd
+    // one stays out.
+    assert_eq!(ids(&br, "docs").await, [2, 4, 8, 10, 12]);
+    assert_eq!(body(&br, 4).await.as_deref(), Some("delta edited on main"));
+    assert_eq!(body(&br, 12).await.as_deref(), Some("mu, new on main"));
+    assert!(branch::diff(&main, &br).await.unwrap().is_empty());
+
+    // Another lens: rows entering it arrive whole, with columns written long
+    // before the branch last looked; rows leaving it are kept.
+    // An unmerged edit on a held row the new lens also selects, whose cells
+    // main wrote last: pulling must not report main's old values of it as a
+    // conflict.
+    put(&br, 4, "delta edited again on the branch").await;
+    let low = Lens::new().rows("docs", "id <= 4", ()).unwrap();
+    let report = branch::pull_lens(&main, &br, &low).await.unwrap();
+    assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
+    assert_eq!(ids(&br, "docs").await, [1, 2, 3, 4, 8, 10, 12]);
+    assert_eq!(body(&br, 3).await.as_deref(), Some("gamma edited on main"));
+    assert_eq!(
+        scalar(
+            &br,
+            "SELECT count(*) FROM docs WHERE id IN (1, 3) AND emb IS NOT NULL"
+        )
+        .await,
+        Value::Integer(2)
+    );
+    assert_eq!(branch::diff(&main, &br).await.unwrap().rows.len(), 1);
+    // The rows are whole on the branch: a merge back changes nothing on main
+    // but the edit.
+    let before = (body(&main, 1).await, body(&main, 3).await);
+    branch::merge(&main, &br).await.unwrap();
+    assert_eq!((body(&main, 1).await, body(&main, 3).await), before);
+}
+
+#[tokio::test]
+async fn a_lens_can_select_by_meaning() {
+    let Some(ext) = extension() else { return };
+    let main = main_db(&ext).await;
+    for (id, text) in [(4, "alpha alpha beta"), (5, "unrelated words here")] {
+        put(&main, id, text).await;
+    }
+    // The two documents nearest to "alpha alpha".
+    let near = Lens::new()
+        .rows(
+            "docs",
+            "id IN (SELECT id FROM vector_top_k('docs_vec', vector32(?), 2))",
+            params![embed("alpha alpha", DIMS)],
+        )
+        .unwrap();
+    let br = open(&ext).await;
+    branch::fork_lens(&main, &br, &near).await.unwrap();
+    assert_eq!(ids(&br, "docs").await, [1, 4]);
+    // Its vector index holds just those, and searches them.
+    assert_eq!(
+        nearest(&br, "alpha alpha beta").await.as_deref(),
+        Some("alpha alpha beta")
+    );
+}
+
+#[tokio::test]
+async fn a_lens_is_checked() {
+    let Some(ext) = extension() else { return };
+    let main = main_db(&ext).await;
+    let br = open(&ext).await;
+    let untracked = Lens::new().rows("audit", "1", ()).unwrap();
+    let err = branch::fork_lens(&main, &br, &untracked).await.unwrap_err();
+    assert!(err.to_string().contains("not a tracked table"), "{err}");
+    assert!(Lens::new()
+        .rows("docs", "id = :id", sqlanywhere::named_params! {":id": 1})
+        .is_err());
 }
 
 async fn open_path(ext: &str, path: &str) -> Connection {

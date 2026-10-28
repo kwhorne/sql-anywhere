@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Branches carry their jobs and events, and can merge on a policy.** A job a
+  branch enqueues or an event it publishes on the storage contracts is listed
+  in `BranchDiff.effects` and enqueued or published on the parent by the
+  merge, in the same transaction as the data and exactly once (the parent
+  records how far each branch has been carried). Before, these tables could not
+  be tracked at all (their `AUTOINCREMENT` keys rule out a CRR), so a merge
+  silently left an agent's queued work behind. `branch::merge_if(main, branch,
+  &policy)` merges only when the diff passes a `MergePolicy`
+  (`no_conflicts`, `read_only`, `no_deletes_in`, `max_rows`,
+  `max_vector_distance`, `no_jobs_on`, …), holding the parent's write lock
+  from the check to the commit; otherwise it writes nothing and returns the
+  diff with every `Violation`. See [docs/BRANCHES.md](docs/BRANCHES.md).
+  `BranchDiff` and `MergeReport` gain fields; a branch forked by 0.7.0 starts
+  carrying jobs and events after its next merge.
 - **Live queries that watch only their own tables.** `live::track(&conn,
   table)` gives a table triggers that bump its version in
   `sqlanywhere_live_tables`; a live query whose tables are all tracked compares

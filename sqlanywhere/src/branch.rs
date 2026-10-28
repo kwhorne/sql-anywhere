@@ -26,14 +26,40 @@
 //! The functions take connections rather than paths, so the branch can live
 //! wherever the caller opens it: a file next to the parent, a temp file, or
 //! `:memory:`.
+//!
+//! # Side effects
+//!
+//! The queue and pub/sub tables of the storage contracts (`askr_jobs`,
+//! `askr_events`) cannot be CRRs: their keys are `AUTOINCREMENT`, which two
+//! databases would hand out twice. A job a branch enqueues, or an event it
+//! publishes, is instead an [`Effect`]: [`diff`] lists it, and a merge enqueues
+//! or publishes it again on `main`, in the same transaction as the data and
+//! exactly once. Until then no worker on `main` can see it.
+//!
+//! # Merging on a policy
+//!
+//! [`merge_if`] checks the diff against a [`MergePolicy`] and merges only when
+//! nothing violates it, holding `main`'s write lock from the check to the
+//! commit so that what is merged is what was checked. An agent's harmless
+//! changes can then merge on their own while anything larger waits for a
+//! person.
 
 use std::collections::HashMap;
 
+use std::fmt;
+
+use crate::contracts::{pubsub, queue};
 use crate::params::params_from_iter;
+use crate::transaction::TransactionBehavior;
 use crate::{params, Connection, Error, Result, Value};
 
 /// Name of the table a branch keeps its bookkeeping in.
 const META_TABLE: &str = "sqlanywhere_branch";
+
+/// Kept on the parent: per branch, how far its jobs and events have been
+/// carried over, written in the same transaction as the jobs and events
+/// themselves so that a crash between the two cannot carry them twice.
+const MERGES_TABLE: &str = "sqlanywhere_branch_merges";
 
 /// cr-sqlite's column id for "the row itself" (creation or deletion).
 const ROW_SENTINEL: &str = "-1";
@@ -113,11 +139,31 @@ pub struct Conflict {
     pub winner: Option<Side>,
 }
 
+/// Work the branch queued that a merge sets going on the parent.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Effect {
+    /// A job the branch enqueued on the queue contract.
+    Job {
+        queue: String,
+        payload: Vec<u8>,
+        priority: i64,
+        /// Unix seconds; a merge after this makes the job ready at once.
+        available_at: i64,
+        max_attempts: i64,
+    },
+    /// An event the branch published on the pub/sub contract.
+    Event { channel: String, payload: Vec<u8> },
+}
+
 /// The pending changes of a branch.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BranchDiff {
     pub rows: Vec<RowChange>,
     pub conflicts: Vec<Conflict>,
+    /// Jobs and events the branch queued since the fork or the last merge, in
+    /// the order they were queued. A merge enqueues and publishes them on the
+    /// parent.
+    pub effects: Vec<Effect>,
     /// Tables whose changes this diff cannot see and a merge will not carry.
     pub untracked_tables: Vec<String>,
 }
@@ -125,7 +171,7 @@ pub struct BranchDiff {
 impl BranchDiff {
     /// True when merging would change nothing on the parent.
     pub fn is_empty(&self) -> bool {
-        self.rows.is_empty()
+        self.rows.is_empty() && self.effects.is_empty()
     }
 }
 
@@ -134,8 +180,233 @@ impl BranchDiff {
 pub struct MergeReport {
     /// Number of `crsql_changes` rows applied to the target.
     pub changes_applied: usize,
+    /// Jobs enqueued and events published on the target. Always 0 for a
+    /// [`pull`].
+    pub effects_applied: usize,
     /// Every conflict, with the side that won.
     pub conflicts: Vec<Conflict>,
+}
+
+/// Rules a branch must pass for [`merge_if`] to merge it. A new policy has no
+/// rules and lets everything through; each method adds one.
+///
+/// ```rust
+/// use sqlanywhere::branch::MergePolicy;
+///
+/// let policy = MergePolicy::new()
+///     .no_conflicts()
+///     .read_only("billing")
+///     .no_deletes_in("customers")
+///     .max_rows(50)
+///     .max_vector_distance(0.2)
+///     .no_jobs_on("payments");
+/// ```
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MergePolicy {
+    no_conflicts: bool,
+    read_only: Vec<String>,
+    no_deletes: bool,
+    no_deletes_in: Vec<String>,
+    max_rows: Option<usize>,
+    max_vector_distance: Option<f64>,
+    no_jobs_on: Vec<String>,
+    no_events_on: Vec<String>,
+}
+
+impl MergePolicy {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Hold a branch that changed anything the parent also changed since the
+    /// branch last saw it.
+    pub fn no_conflicts(mut self) -> Self {
+        self.no_conflicts = true;
+        self
+    }
+
+    /// Hold a branch that changed any row of `table`.
+    pub fn read_only(mut self, table: &str) -> Self {
+        self.read_only.push(table.to_string());
+        self
+    }
+
+    /// Hold a branch that deleted any row.
+    pub fn no_deletes(mut self) -> Self {
+        self.no_deletes = true;
+        self
+    }
+
+    /// Hold a branch that deleted a row of `table`.
+    pub fn no_deletes_in(mut self, table: &str) -> Self {
+        self.no_deletes_in.push(table.to_string());
+        self
+    }
+
+    /// Hold a branch that changed more than `rows` rows.
+    pub fn max_rows(mut self, rows: usize) -> Self {
+        self.max_rows = Some(rows);
+        self
+    }
+
+    /// Hold a branch that moved a vector further than `distance` (cosine
+    /// distance, 0 to 2) from the parent's.
+    pub fn max_vector_distance(mut self, distance: f64) -> Self {
+        self.max_vector_distance = Some(distance);
+        self
+    }
+
+    /// Hold a branch that enqueued a job on `queue`.
+    pub fn no_jobs_on(mut self, queue: &str) -> Self {
+        self.no_jobs_on.push(queue.to_string());
+        self
+    }
+
+    /// Hold a branch that published an event on `channel`.
+    pub fn no_events_on(mut self, channel: &str) -> Self {
+        self.no_events_on.push(channel.to_string());
+        self
+    }
+
+    /// Every way `diff` breaks this policy; empty when it passes. Public so a
+    /// caller can add checks of its own before deciding.
+    pub fn check(&self, diff: &BranchDiff) -> Vec<Violation> {
+        let mut out = Vec::new();
+        if self.no_conflicts {
+            out.extend(diff.conflicts.iter().cloned().map(Violation::Conflict));
+        }
+        if let Some(max) = self.max_rows {
+            if diff.rows.len() > max {
+                out.push(Violation::TooManyRows {
+                    rows: diff.rows.len(),
+                    max,
+                });
+            }
+        }
+        for row in &diff.rows {
+            if self.read_only.contains(&row.table) {
+                out.push(Violation::ReadOnly {
+                    table: row.table.clone(),
+                    pk: row.pk.clone(),
+                });
+            } else if row.kind == ChangeKind::Delete
+                && (self.no_deletes || self.no_deletes_in.contains(&row.table))
+            {
+                out.push(Violation::Delete {
+                    table: row.table.clone(),
+                    pk: row.pk.clone(),
+                });
+            }
+            if let Some(max) = self.max_vector_distance {
+                for col in &row.columns {
+                    match col.vector_distance {
+                        Some(distance) if distance > max => out.push(Violation::VectorMoved {
+                            table: row.table.clone(),
+                            pk: row.pk.clone(),
+                            column: col.column.clone(),
+                            distance,
+                            max,
+                        }),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        for effect in &diff.effects {
+            match effect {
+                Effect::Job { queue, .. } if self.no_jobs_on.contains(queue) => {
+                    out.push(Violation::Job {
+                        queue: queue.clone(),
+                    })
+                }
+                Effect::Event { channel, .. } if self.no_events_on.contains(channel) => {
+                    out.push(Violation::Event {
+                        channel: channel.clone(),
+                    })
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
+/// One way a branch breaks a [`MergePolicy`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum Violation {
+    Conflict(Conflict),
+    ReadOnly {
+        table: String,
+        pk: Vec<Value>,
+    },
+    Delete {
+        table: String,
+        pk: Vec<Value>,
+    },
+    TooManyRows {
+        rows: usize,
+        max: usize,
+    },
+    VectorMoved {
+        table: String,
+        pk: Vec<Value>,
+        column: String,
+        distance: f64,
+        max: f64,
+    },
+    Job {
+        queue: String,
+    },
+    Event {
+        channel: String,
+    },
+}
+
+impl fmt::Display for Violation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Violation::Conflict(c) => match &c.column {
+                Some(col) => write!(f, "{}{:?}.{col} was also changed on main", c.table, c.pk),
+                None => write!(
+                    f,
+                    "{}{:?} was deleted on one side and changed on the other",
+                    c.table, c.pk
+                ),
+            },
+            Violation::ReadOnly { table, pk } => {
+                write!(f, "{table}{pk:?} changed in a read-only table")
+            }
+            Violation::Delete { table, pk } => write!(f, "{table}{pk:?} deleted"),
+            Violation::TooManyRows { rows, max } => {
+                write!(f, "{rows} rows changed, at most {max} allowed")
+            }
+            Violation::VectorMoved {
+                table,
+                pk,
+                column,
+                distance,
+                max,
+            } => write!(
+                f,
+                "{table}{pk:?}.{column} moved {distance:.3}, at most {max} allowed"
+            ),
+            Violation::Job { queue } => write!(f, "a job enqueued on `{queue}`"),
+            Violation::Event { channel } => write!(f, "an event published on `{channel}`"),
+        }
+    }
+}
+
+/// What [`merge_if`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Gate {
+    /// The branch passed and was merged.
+    Merged(MergeReport),
+    /// The branch broke the policy; nothing was written to the parent. The
+    /// diff is what was checked, for a person to review.
+    Held {
+        diff: BranchDiff,
+        violations: Vec<Violation>,
+    },
 }
 
 /// Turn the empty database behind `branch` into a branch of `main`.
@@ -193,6 +464,9 @@ pub async fn fork(main: &Connection, branch: &Connection) -> Result<BranchInfo> 
     for obj in &behaviour {
         tx.execute(&obj.sql, ()).await?;
     }
+    // The jobs and events copied from main are main's; only those after these
+    // marks are the branch's own.
+    let marks = Marks::current(&tx).await?;
     tx.execute(
         &format!("CREATE TABLE {META_TABLE} (key TEXT PRIMARY KEY, value)"),
         (),
@@ -202,6 +476,8 @@ pub async fn fork(main: &Connection, branch: &Connection) -> Result<BranchInfo> 
         ("parent_site_id", Value::Blob(site_id.clone())),
         ("base_version", Value::Integer(version)),
         ("merged_version", Value::Integer(0)),
+        ("jobs_mark", Value::Integer(marks.jobs)),
+        ("events_mark", Value::Integer(marks.events)),
     ] {
         set_meta(&tx, key, value).await?;
     }
@@ -237,14 +513,289 @@ pub async fn info(branch: &Connection) -> Result<BranchInfo> {
 /// What merging `branch` into `main` would do, without doing it.
 ///
 /// Lists every row the branch changed since it was forked or last merged, next
-/// to the value `main` holds now, and every place `main` changed the same thing
-/// since the branch last saw it.
+/// to the value `main` holds now, every place `main` changed the same thing
+/// since the branch last saw it, and the jobs and events the branch queued.
 pub async fn diff(main: &Connection, branch: &Connection) -> Result<BranchDiff> {
     let meta = Meta::read(branch).await?;
     meta.check_parent(main).await?;
-    let ours = local_changes(branch, meta.merged_version).await?;
-    let theirs = changes_since(main, meta.base_version, Some(&ours.site_id)).await?;
+    let pending = Pending::read(main, branch, &meta).await?;
+    let theirs = changes_since(main, meta.base_version, Some(&pending.ours.site_id)).await?;
+    describe(main, branch, &pending, &theirs).await
+}
 
+/// Apply the branch's changes to `main`, and enqueue and publish its jobs and
+/// events there.
+///
+/// Changes already merged are not sent again, so merging the same branch
+/// repeatedly carries only what was written since. Conflicts never fail a
+/// merge: cr-sqlite resolves them the same way on every node, and the report
+/// says which side won each one. To refuse a merge that would conflict, or
+/// that breaks any other rule, use [`merge_if`].
+pub async fn merge(main: &Connection, branch: &Connection) -> Result<MergeReport> {
+    match merge_if(main, branch, &MergePolicy::new()).await? {
+        Gate::Merged(report) => Ok(report),
+        Gate::Held { .. } => unreachable!("a policy without rules holds nothing"),
+    }
+}
+
+/// Merge `branch` into `main` only if its diff passes `policy`.
+///
+/// `main`'s write lock is taken before the diff is computed and held until the
+/// merge commits, and the branch's changes are read once, so what is merged is
+/// exactly what was checked: neither a write landing on `main` nor one landing
+/// on the branch in between can slip past the policy. A held branch writes
+/// nothing to `main` and keeps all its changes for a later merge.
+pub async fn merge_if(
+    main: &Connection,
+    branch: &Connection,
+    policy: &MergePolicy,
+) -> Result<Gate> {
+    let meta = Meta::read(branch).await?;
+    meta.check_parent(main).await?;
+
+    let tx = main
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .await?;
+    let pending = Pending::read(&tx, branch, &meta).await?;
+    let theirs = changes_since(&tx, meta.base_version, Some(&pending.ours.site_id)).await?;
+    let diff = describe(&tx, branch, &pending, &theirs).await?;
+    let violations = policy.check(&diff);
+    if !violations.is_empty() {
+        tx.rollback().await?;
+        return Ok(Gate::Held { diff, violations });
+    }
+    apply(&tx, &pending.ours.changes).await?;
+    apply_effects(&tx, &pending.effects).await?;
+    if !pending.effects.is_empty() {
+        tx.execute(
+            &format!(
+                "CREATE TABLE IF NOT EXISTS {MERGES_TABLE} \
+                 (branch BLOB PRIMARY KEY, jobs_mark INTEGER NOT NULL, \
+                  events_mark INTEGER NOT NULL)"
+            ),
+            (),
+        )
+        .await?;
+        tx.execute(
+            &format!("INSERT OR REPLACE INTO {MERGES_TABLE} VALUES (?, ?, ?)"),
+            params![
+                pending.ours.site_id.clone(),
+                pending.marks.jobs,
+                pending.marks.events
+            ],
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    set_meta(branch, "merged_version", Value::Integer(pending.version)).await?;
+    if meta.marks.is_none() {
+        // A branch forked before effects were carried: from here on they are.
+        set_meta(branch, "jobs_mark", Value::Integer(pending.marks.jobs)).await?;
+        set_meta(branch, "events_mark", Value::Integer(pending.marks.events)).await?;
+    }
+    let conflicts = resolve(main, branch, conflicting(&pending.ours.changes, &theirs)).await?;
+    Ok(Gate::Merged(MergeReport {
+        changes_applied: pending.ours.changes.len(),
+        effects_applied: pending.effects.len(),
+        conflicts,
+    }))
+}
+
+/// What a branch has not merged yet, read in one snapshot of it.
+struct Pending {
+    ours: LocalChanges,
+    /// The branch's `crsql_db_version()` the changes run up to.
+    version: i64,
+    effects: Vec<Effect>,
+    /// The marks once `effects` are carried.
+    marks: Marks,
+}
+
+impl Pending {
+    async fn read(main: &Connection, branch: &Connection, meta: &Meta) -> Result<Self> {
+        let site_id = blob(&one(branch, "SELECT crsql_site_id()", ()).await?)?;
+        // The parent's record wins: it is written with the effects it counts.
+        let carried = match Marks::recorded(main, &site_id).await? {
+            Some(marks) => Some(marks),
+            None => meta.marks,
+        };
+        let tx = branch.transaction().await?;
+        let ours = local_changes(&tx, meta.merged_version).await?;
+        let version = int(&one(&tx, "SELECT crsql_db_version()", ()).await?)?;
+        let (effects, marks) = match carried {
+            Some(from) => effects_since(&tx, from).await?,
+            None => (Vec::new(), Marks::current(&tx).await?),
+        };
+        tx.commit().await?;
+        Ok(Pending {
+            ours,
+            version,
+            effects,
+            marks,
+        })
+    }
+}
+
+/// How far a branch's jobs (`askr_jobs.id`) and events (`askr_events.seq`)
+/// have been carried to the parent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Marks {
+    jobs: i64,
+    events: i64,
+}
+
+impl Marks {
+    /// The newest job and event in `conn`, 0 where the table does not exist.
+    async fn current(conn: &Connection) -> Result<Self> {
+        Ok(Marks {
+            jobs: newest(conn, "askr_jobs", "id").await?,
+            events: newest(conn, "askr_events", "seq").await?,
+        })
+    }
+
+    async fn recorded(main: &Connection, branch: &[u8]) -> Result<Option<Self>> {
+        if !has_table(main, MERGES_TABLE).await? {
+            return Ok(None);
+        }
+        let rows = all(
+            main,
+            &format!("SELECT jobs_mark, events_mark FROM {MERGES_TABLE} WHERE branch = ?"),
+            params![branch.to_vec()],
+        )
+        .await?;
+        rows.first()
+            .map(|r| {
+                Ok(Marks {
+                    jobs: int(&r[0])?,
+                    events: int(&r[1])?,
+                })
+            })
+            .transpose()
+    }
+}
+
+async fn newest(conn: &Connection, table: &str, key: &str) -> Result<i64> {
+    if !has_table(conn, table).await? {
+        return Ok(0);
+    }
+    int(&one(
+        conn,
+        &format!("SELECT coalesce(max({key}), 0) FROM {table}"),
+        (),
+    )
+    .await?)
+}
+
+async fn has_table(conn: &Connection, table: &str) -> Result<bool> {
+    let n = one(
+        conn,
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+        params![table],
+    )
+    .await?;
+    Ok(int(&n)? > 0)
+}
+
+/// The jobs and events in `branch` after `from`, oldest first, and the marks
+/// past them.
+async fn effects_since(branch: &Connection, from: Marks) -> Result<(Vec<Effect>, Marks)> {
+    let mut effects = Vec::new();
+    let mut marks = from;
+    if has_table(branch, "askr_jobs").await? {
+        for r in all(
+            branch,
+            "SELECT id, queue, payload, priority, available_at, max_attempts \
+             FROM askr_jobs WHERE id > ? ORDER BY id",
+            params![from.jobs],
+        )
+        .await?
+        {
+            marks.jobs = int(&r[0])?;
+            effects.push(Effect::Job {
+                queue: text(&r[1])?,
+                payload: payload(&r[2])?,
+                priority: int(&r[3])?,
+                available_at: int(&r[4])?,
+                max_attempts: int(&r[5])?,
+            });
+        }
+    }
+    if has_table(branch, "askr_events").await? {
+        for r in all(
+            branch,
+            "SELECT seq, channel, payload FROM askr_events WHERE seq > ? ORDER BY seq",
+            params![from.events],
+        )
+        .await?
+        {
+            marks.events = int(&r[0])?;
+            effects.push(Effect::Event {
+                channel: text(&r[1])?,
+                payload: payload(&r[2])?,
+            });
+        }
+    }
+    Ok((effects, marks))
+}
+
+/// The contracts store payloads as blobs; text is taken as its UTF-8 bytes.
+fn payload(v: &Value) -> Result<Vec<u8>> {
+    match v {
+        Value::Blob(b) => Ok(b.clone()),
+        Value::Text(t) => Ok(t.as_bytes().to_vec()),
+        other => Err(Error::Misuse(format!(
+            "expected a job or event payload, got {other:?}"
+        ))),
+    }
+}
+
+/// Enqueue and publish `effects` on `main` through the contracts.
+async fn apply_effects(main: &Connection, effects: &[Effect]) -> Result<()> {
+    if effects.iter().any(|e| matches!(e, Effect::Job { .. })) {
+        queue::install(main).await?;
+    }
+    if effects.iter().any(|e| matches!(e, Effect::Event { .. })) {
+        pubsub::install(main).await?;
+    }
+    let now = int(&one(main, "SELECT unixepoch()", ()).await?)?;
+    for effect in effects {
+        match effect {
+            Effect::Job {
+                queue: name,
+                payload,
+                priority,
+                available_at,
+                max_attempts,
+            } => {
+                // Enqueue takes a delay from now; this one lands the job on
+                // the branch's own available_at, past or future.
+                queue::enqueue(
+                    main,
+                    name,
+                    payload,
+                    *priority,
+                    available_at - now,
+                    *max_attempts,
+                )
+                .await?;
+            }
+            Effect::Event { channel, payload } => {
+                pubsub::publish(main, channel, payload).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The diff of `pending` against `main` as it is now.
+async fn describe(
+    main: &Connection,
+    branch: &Connection,
+    pending: &Pending,
+    theirs: &[Change],
+) -> Result<BranchDiff> {
+    let ours = &pending.ours;
     let mut schemas = Schemas::default();
     let mut rows: Vec<RowChange> = Vec::new();
     let mut index: HashMap<(String, Vec<u8>), usize> = HashMap::new();
@@ -303,7 +854,7 @@ pub async fn diff(main: &Connection, branch: &Connection) -> Result<BranchDiff> 
     rows.retain(|r| r.kind == ChangeKind::Delete || !r.columns.is_empty());
 
     let mut conflicts = Vec::new();
-    for (ours, theirs) in conflicting(&ours.changes, &theirs) {
+    for (ours, theirs) in conflicting(&ours.changes, theirs) {
         let row_level = ours.is_delete() || theirs.is_delete();
         conflicts.push(Conflict {
             table: ours.table.clone(),
@@ -317,35 +868,8 @@ pub async fn diff(main: &Connection, branch: &Connection) -> Result<BranchDiff> 
     Ok(BranchDiff {
         rows,
         conflicts,
+        effects: pending.effects.clone(),
         untracked_tables: info(branch).await?.untracked_tables,
-    })
-}
-
-/// Apply the branch's changes to `main`.
-///
-/// Changes already merged are not sent again, so merging the same branch
-/// repeatedly carries only what was written since. Conflicts never fail a
-/// merge: cr-sqlite resolves them the same way on every node, and the report
-/// says which side won each one. Check [`diff`] first to refuse a merge that
-/// would conflict.
-pub async fn merge(main: &Connection, branch: &Connection) -> Result<MergeReport> {
-    let meta = Meta::read(branch).await?;
-    meta.check_parent(main).await?;
-    let tx = branch.transaction().await?;
-    let ours = local_changes(&tx, meta.merged_version).await?;
-    let version = int(&one(&tx, "SELECT crsql_db_version()", ()).await?)?;
-    tx.commit().await?;
-    let theirs = changes_since(main, meta.base_version, Some(&ours.site_id)).await?;
-
-    let tx = main.transaction().await?;
-    apply(&tx, &ours.changes).await?;
-    tx.commit().await?;
-    set_meta(branch, "merged_version", Value::Integer(version)).await?;
-
-    let conflicts = resolve(main, branch, conflicting(&ours.changes, &theirs)).await?;
-    Ok(MergeReport {
-        changes_applied: ours.changes.len(),
-        conflicts,
     })
 }
 
@@ -369,6 +893,7 @@ pub async fn pull(main: &Connection, branch: &Connection) -> Result<MergeReport>
     let conflicts = resolve(branch, branch, conflicting(&ours.changes, &theirs)).await?;
     Ok(MergeReport {
         changes_applied: theirs.len(),
+        effects_applied: 0,
         conflicts,
     })
 }
@@ -540,6 +1065,8 @@ struct Meta {
     parent_site_id: Vec<u8>,
     base_version: i64,
     merged_version: i64,
+    /// `None` for a branch forked before jobs and events were carried.
+    marks: Option<Marks>,
 }
 
 impl Meta {
@@ -567,6 +1094,16 @@ impl Meta {
             parent_site_id: blob(&get("parent_site_id").await?)?,
             base_version: int(&get("base_version").await?)?,
             merged_version: int(&get("merged_version").await?)?,
+            marks: match (
+                opt(branch, "jobs_mark").await?,
+                opt(branch, "events_mark").await?,
+            ) {
+                (Some(jobs), Some(events)) => Some(Marks {
+                    jobs: int(&jobs)?,
+                    events: int(&events)?,
+                }),
+                _ => None,
+            },
         })
     }
 
@@ -579,6 +1116,16 @@ impl Meta {
         }
         Ok(())
     }
+}
+
+async fn opt(branch: &Connection, key: &str) -> Result<Option<Value>> {
+    let rows = all(
+        branch,
+        &format!("SELECT value FROM {META_TABLE} WHERE key = ?"),
+        params![key],
+    )
+    .await?;
+    Ok(rows.into_iter().next().and_then(|r| r.into_iter().next()))
 }
 
 async fn set_meta(conn: &Connection, key: &str, value: Value) -> Result<()> {
@@ -705,7 +1252,8 @@ async fn schema_objects(conn: &Connection) -> Result<Vec<SchemaObject>> {
                AND name NOT LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' \
                AND tbl_name NOT LIKE 'crsql\\_%' ESCAPE '\\' \
                AND tbl_name NOT LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' \
-               AND tbl_name NOT IN ('sqlanywhere_vector_meta_shadow', '{META_TABLE}') \
+               AND tbl_name NOT IN ('sqlanywhere_vector_meta_shadow', '{META_TABLE}', \
+                                    '{MERGES_TABLE}') \
                AND NOT EXISTS (SELECT 1 FROM sqlite_master AS i \
                                WHERE i.type = 'index' AND m.tbl_name = i.name || '_shadow') \
                AND NOT EXISTS (SELECT 1 FROM pragma_table_list AS t \

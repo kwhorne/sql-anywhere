@@ -4,7 +4,8 @@
 //! `scripts/build-crsqlite.sh`); the tests skip and pass when it is unset, so
 //! the main workspace CI is unaffected.
 
-use sqlanywhere::branch::{self, ChangeKind, Side};
+use sqlanywhere::branch::{self, ChangeKind, Effect, Gate, MergePolicy, Side, Violation};
+use sqlanywhere::contracts::{pubsub, queue};
 use sqlanywhere::{embed, params, Builder, Connection, Value};
 
 const DIMS: usize = 16;
@@ -349,4 +350,242 @@ async fn misuse_is_refused() {
     let stranger = main_db(&ext).await;
     assert!(branch::diff(&stranger, &br).await.is_err());
     assert!(branch::merge(&stranger, &br).await.is_err());
+}
+
+/// The jobs on `conn` as (queue, payload, available_at), oldest first.
+async fn jobs(conn: &Connection) -> Vec<(String, Vec<u8>, i64)> {
+    let mut rows = conn
+        .query(
+            "SELECT queue, payload, available_at FROM askr_jobs ORDER BY id",
+            (),
+        )
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await.unwrap() {
+        out.push((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()));
+    }
+    out
+}
+
+async fn events(conn: &Connection) -> Vec<String> {
+    let mut rows = conn
+        .query("SELECT channel FROM askr_events ORDER BY seq", ())
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await.unwrap() {
+        out.push(r.get(0).unwrap());
+    }
+    out
+}
+
+#[tokio::test]
+async fn jobs_and_events_queued_on_a_branch_are_carried_once() {
+    let Some(ext) = extension() else { return };
+    let main = main_db(&ext).await;
+    queue::install(&main).await.unwrap();
+    queue::enqueue(&main, "email", b"already on main", 0, 0, 25)
+        .await
+        .unwrap();
+    let br = open(&ext).await;
+    branch::fork(&main, &br).await.unwrap();
+
+    // The agent queues work on its branch; pub/sub is installed only there.
+    queue::enqueue(&br, "email", b"welcome", 0, 3600, 5)
+        .await
+        .unwrap();
+    pubsub::install(&br).await.unwrap();
+    pubsub::publish(&br, "agent", b"done").await.unwrap();
+    let delayed_until = jobs(&br).await[1].2;
+
+    let diff = branch::diff(&main, &br).await.unwrap();
+    assert!(diff.rows.is_empty());
+    assert!(!diff.is_empty(), "queued work alone is something to merge");
+    assert_eq!(
+        diff.effects,
+        vec![
+            Effect::Job {
+                queue: "email".into(),
+                payload: b"welcome".to_vec(),
+                priority: 0,
+                available_at: delayed_until,
+                max_attempts: 5,
+            },
+            Effect::Event {
+                channel: "agent".into(),
+                payload: b"done".to_vec(),
+            },
+        ]
+    );
+    // Until the merge, main's workers cannot see it.
+    assert_eq!(jobs(&main).await.len(), 1);
+
+    let report = branch::merge(&main, &br).await.unwrap();
+    assert_eq!(report.effects_applied, 2);
+    assert_eq!(
+        jobs(&main).await,
+        vec![
+            (
+                "email".into(),
+                b"already on main".to_vec(),
+                jobs(&main).await[0].2
+            ),
+            ("email".into(), b"welcome".to_vec(), delayed_until),
+        ]
+    );
+    assert_eq!(events(&main).await, vec!["agent".to_string()]);
+
+    // Merged once: a second merge carries nothing, a new job only itself.
+    assert!(branch::diff(&main, &br).await.unwrap().is_empty());
+    assert_eq!(branch::merge(&main, &br).await.unwrap().effects_applied, 0);
+    queue::enqueue(&br, "email", b"follow-up", 0, 0, 25)
+        .await
+        .unwrap();
+    assert_eq!(branch::merge(&main, &br).await.unwrap().effects_applied, 1);
+    assert_eq!(jobs(&main).await.len(), 3);
+
+    // The parent's record is what counts, so a branch whose own bookkeeping
+    // fell behind (a crash after main committed) does not enqueue twice.
+    br.execute(
+        "UPDATE sqlanywhere_branch SET value = 0 WHERE key IN ('jobs_mark', 'events_mark')",
+        (),
+    )
+    .await
+    .unwrap();
+    assert!(branch::diff(&main, &br).await.unwrap().effects.is_empty());
+    assert_eq!(branch::merge(&main, &br).await.unwrap().effects_applied, 0);
+    assert_eq!(jobs(&main).await.len(), 3);
+    assert_eq!(events(&main).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_branch_from_before_effects_starts_carrying_them_after_its_next_merge() {
+    let Some(ext) = extension() else { return };
+    let main = main_db(&ext).await;
+    queue::install(&main).await.unwrap();
+    let br = open(&ext).await;
+    branch::fork(&main, &br).await.unwrap();
+    // As a 0.7.0 fork left it: no marks.
+    br.execute(
+        "DELETE FROM sqlanywhere_branch WHERE key IN ('jobs_mark', 'events_mark')",
+        (),
+    )
+    .await
+    .unwrap();
+    queue::enqueue(&br, "email", b"unknowable", 0, 0, 25)
+        .await
+        .unwrap();
+    // Which jobs are the branch's own cannot be told, so none are carried.
+    assert!(branch::diff(&main, &br).await.unwrap().effects.is_empty());
+    assert_eq!(branch::merge(&main, &br).await.unwrap().effects_applied, 0);
+    assert!(jobs(&main).await.is_empty());
+
+    queue::enqueue(&br, "email", b"after", 0, 0, 25)
+        .await
+        .unwrap();
+    assert_eq!(branch::merge(&main, &br).await.unwrap().effects_applied, 1);
+    assert_eq!(jobs(&main).await[0].1, b"after".to_vec());
+}
+
+#[tokio::test]
+async fn merge_if_holds_a_branch_that_breaks_the_policy() {
+    let Some(ext) = extension() else { return };
+    let main = main_db(&ext).await;
+    let br = open(&ext).await;
+    branch::fork(&main, &br).await.unwrap();
+
+    put(&br, 2, "beta rewritten entirely").await;
+    br.execute("DELETE FROM docs WHERE id = 3", ())
+        .await
+        .unwrap();
+    queue::install(&br).await.unwrap();
+    queue::enqueue(&br, "payments", b"refund", 0, 0, 25)
+        .await
+        .unwrap();
+    // main edits doc 2 too: a conflict.
+    put(&main, 2, "beta edited on main").await;
+
+    let held = |gate: Gate| match gate {
+        Gate::Held { violations, diff } => {
+            assert_eq!(diff.rows.len(), 2);
+            violations
+        }
+        Gate::Merged(_) => panic!("merged a branch the policy should hold"),
+    };
+    let check = |policy: MergePolicy| {
+        let (main, br) = (main.clone(), br.clone());
+        async move { held(branch::merge_if(&main, &br, &policy).await.unwrap()) }
+    };
+
+    let v = check(MergePolicy::new().no_conflicts()).await;
+    assert!(
+        matches!(&v[..], [Violation::Conflict(c), ..] if c.table == "docs"),
+        "{v:?}"
+    );
+    let v = check(MergePolicy::new().read_only("docs")).await;
+    assert_eq!(v.len(), 2, "{v:?}");
+    let v = check(MergePolicy::new().no_deletes_in("docs")).await;
+    assert_eq!(
+        v,
+        vec![Violation::Delete {
+            table: "docs".into(),
+            pk: vec![Value::Integer(3)]
+        }]
+    );
+    assert_eq!(v[0].to_string(), "docs[Integer(3)] deleted");
+    let v = check(MergePolicy::new().no_deletes()).await;
+    assert_eq!(v.len(), 1);
+    let v = check(MergePolicy::new().max_rows(1)).await;
+    assert_eq!(v, vec![Violation::TooManyRows { rows: 2, max: 1 }]);
+    let v = check(MergePolicy::new().max_vector_distance(0.0)).await;
+    assert!(
+        matches!(&v[..], [Violation::VectorMoved { column, .. }] if column == "emb"),
+        "{v:?}"
+    );
+    let v = check(MergePolicy::new().no_jobs_on("payments")).await;
+    assert_eq!(
+        v,
+        vec![Violation::Job {
+            queue: "payments".into()
+        }]
+    );
+
+    // Held means untouched: main still has its own edit, doc 3, and no job.
+    assert_eq!(body(&main, 2).await.as_deref(), Some("beta edited on main"));
+    assert_eq!(body(&main, 3).await.as_deref(), Some("gamma gamma"));
+    assert!(!has_jobs_table(&main).await);
+
+    // Rules the branch passes merge it, and everything held is still pending.
+    let gate = branch::merge_if(
+        &main,
+        &br,
+        &MergePolicy::new()
+            .max_rows(2)
+            .max_vector_distance(2.0)
+            .no_deletes_in("audit")
+            .no_jobs_on("email")
+            .no_events_on("agent"),
+    )
+    .await
+    .unwrap();
+    let Gate::Merged(report) = gate else {
+        panic!("held a branch that passes")
+    };
+    assert_eq!(report.effects_applied, 1);
+    // put writes body and emb, so both columns conflicted.
+    let mut cols: Vec<_> = report.conflicts.iter().map(|c| c.column.clone()).collect();
+    cols.sort();
+    assert_eq!(cols, [Some("body".to_string()), Some("emb".to_string())]);
+    assert_eq!(body(&main, 3).await, None);
+    assert_eq!(jobs(&main).await[0].0, "payments");
+}
+
+async fn has_jobs_table(conn: &Connection) -> bool {
+    scalar(
+        conn,
+        "SELECT count(*) FROM sqlite_master WHERE name = 'askr_jobs'",
+    )
+    .await
+        == Value::Integer(1)
 }

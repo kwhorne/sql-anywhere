@@ -5,7 +5,19 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-10-28
+
+Branches and live queries, made safe to leave running on their own. Jobs a
+branch enqueues and events it publishes now wait for the merge and arrive on
+the parent exactly once, where before a merge silently left them behind; and
+`merge_if` lets a policy merge an agent's harmless changes by itself while
+holding the rest, with the reasons, for a person. A live query over tracked
+tables re-runs only for writes to those tables, on embedded replicas too, so a
+busy queue in the same file no longer makes every live query re-run.
+
+No file-format changes. `BranchDiff` and `MergeReport` gain fields (the branch
+module is experimental), and a branch forked by 0.7.0 starts carrying jobs and
+events after its next merge.
 
 ### Added
 
@@ -656,7 +668,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
-[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.7.0...HEAD
+[0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2
 [0.6.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.1

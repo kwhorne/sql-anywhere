@@ -5,6 +5,25 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Branches carry their jobs and events, and can merge on a policy.** A job a
+  branch enqueues or an event it publishes on the storage contracts is listed
+  in `BranchDiff.effects` and enqueued or published on the parent by the
+  merge, in the same transaction as the data and exactly once (the parent
+  records how far each branch has been carried). Before, these tables could not
+  be tracked at all (their `AUTOINCREMENT` keys rule out a CRR), so a merge
+  silently left an agent's queued work behind. `branch::merge_if(main, branch,
+  &policy)` merges only when the diff passes a `MergePolicy`
+  (`no_conflicts`, `read_only`, `no_deletes_in`, `max_rows`,
+  `max_vector_distance`, `no_jobs_on`, …), holding the parent's write lock
+  from the check to the commit; otherwise it writes nothing and returns the
+  diff with every `Violation`. See [docs/BRANCHES.md](docs/BRANCHES.md).
+  `BranchDiff` and `MergeReport` gain fields; a branch forked by 0.7.0 starts
+  carrying jobs and events after its next merge.
+
 ## [0.7.0] - 2026-10-10
 
 SQL Anywhere's pieces, composed into things they could not do apart, and a
@@ -617,6 +636,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2
 [0.6.1]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.1

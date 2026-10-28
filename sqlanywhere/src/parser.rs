@@ -52,6 +52,9 @@ impl StmtKind {
     fn kind(cmd: &Cmd) -> Option<Self> {
         match cmd {
             Cmd::Explain(Stmt::Pragma(name, body)) => Self::pragma_kind(name, body.as_ref()),
+            // Explaining a query does not run it, so a replica can answer it
+            // from its own file.
+            Cmd::Explain(Stmt::Select(_)) => Some(Self::Read),
             Cmd::Explain(_) => Some(Self::Other),
             Cmd::ExplainQueryPlan(_) => Some(Self::Other),
             Cmd::Stmt(Stmt::Begin(Some(TransactionType::ReadOnly), _)) => {
@@ -263,6 +266,14 @@ impl Statement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explaining_a_select_is_a_read() {
+        let kinds: Vec<_> = Statement::parse("EXPLAIN SELECT 1; EXPLAIN INSERT INTO t VALUES (1);")
+            .map(|s| s.unwrap().kind)
+            .collect();
+        assert_eq!(kinds, [StmtKind::Read, StmtKind::Other]);
+    }
+
     #[test]
     fn test_attach_same_db() {
         let input = "ATTACH test AS test;";

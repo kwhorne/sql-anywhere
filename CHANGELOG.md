@@ -23,6 +23,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diff with every `Violation`. See [docs/BRANCHES.md](docs/BRANCHES.md).
   `BranchDiff` and `MergeReport` gain fields; a branch forked by 0.7.0 starts
   carrying jobs and events after its next merge.
+- **Live queries that watch only their own tables.** `live::track(&conn,
+  table)` gives a table triggers that bump its version in
+  `sqlanywhere_live_tables`; a live query whose tables are all tracked compares
+  those versions instead of the file's counters, so writes to other tables (a
+  queue, a cache, embedding jobs) no longer make it re-run. The tables are read
+  from the query's own `EXPLAIN`, through views, joins and covering indexes;
+  anything that cannot be traced (an untracked or virtual table, another
+  schema) keeps the old whole-file watch, and `LiveQuery::watched_tables` says
+  which applies. The versions travel with the data, so other connections and
+  embedded replicas are covered too. See
+  [docs/LIVE_QUERIES.md](docs/LIVE_QUERIES.md#watching-only-the-tables-a-query-reads).
+
+### Fixed
+
+- **A live query noticed its own connection's schema changes only by chance.**
+  `DROP TABLE` or `ALTER TABLE` on the live query's own connection moves
+  neither `data_version` nor `total_changes`; live queries now also compare
+  `schema_version`.
+- **`EXPLAIN SELECT …` on an embedded replica went to the primary.** It is now
+  classified as a read and answered from the replica's own file.
 
 ## [0.7.0] - 2026-10-10
 

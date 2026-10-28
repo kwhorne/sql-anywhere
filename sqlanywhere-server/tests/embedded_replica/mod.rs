@@ -1874,3 +1874,69 @@ fn live_query_follows_replica_sync() {
 
     sim.run().unwrap();
 }
+
+/// A tracked table's versions are rows written in the same transaction as the
+/// change, so they reach an embedded replica with its frames: a live query
+/// there ignores syncs that only touch other tables. Its tables are worked out
+/// from the replica's own file, without the primary.
+#[test]
+fn a_tracked_live_query_on_a_replica() {
+    use sqlanywhere::live::{self, LiveQuery};
+
+    let mut sim = Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+
+    let tmp_embedded = tempdir().unwrap();
+    let tmp_host = tempdir().unwrap();
+    let tmp_embedded_path = tmp_embedded.path().to_owned();
+    let tmp_host_path = tmp_host.path().to_owned();
+
+    make_primary(&mut sim, tmp_host_path.clone());
+
+    sim.client("client", async move {
+        let client = Client::new();
+        client
+            .post("http://primary:9090/v1/namespaces/foo/create", json!({}))
+            .await?;
+
+        let path = tmp_embedded_path.join("embedded");
+        let db = Database::open_with_remote_sync_connector(
+            path.to_str().unwrap(),
+            "http://foo.primary:8080",
+            "",
+            TurmoilConnector,
+            false,
+            None,
+        )
+        .await?;
+        let conn = db.connect()?;
+
+        conn.execute("CREATE TABLE todo (id INTEGER PRIMARY KEY, title TEXT)", ())
+            .await?;
+        conn.execute("CREATE TABLE other (x)", ()).await?;
+        // DDL goes to the primary, like any write.
+        live::track(&conn, "todo").await?;
+        db.sync().await?;
+
+        turmoil::partition("client", "primary");
+        let mut q = LiveQuery::new(&conn, "SELECT id, title FROM todo ORDER BY id", ()).await?;
+        assert_eq!(q.watched_tables(), Some(&["todo".to_string()][..]));
+        turmoil::repair("client", "primary");
+
+        conn.execute("INSERT INTO other VALUES (1)", ()).await?;
+        db.sync().await?;
+        assert!(!q.is_stale().await?);
+
+        conn.execute("INSERT INTO todo VALUES (1, 'from the primary')", ())
+            .await?;
+        assert!(!q.is_stale().await?);
+        db.sync().await?;
+        let diff = q.refresh().await?.expect("sync brought a change");
+        assert_eq!(diff.inserted.len(), 1);
+
+        Ok(())
+    });
+
+    sim.run().unwrap();
+}

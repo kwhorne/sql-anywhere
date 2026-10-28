@@ -43,11 +43,111 @@
 //!
 //! Live queries need the database file in this process: a local database or an
 //! embedded replica. A purely remote connection has no file to watch.
+//!
+//! # Watching only the tables a query reads
+//!
+//! Both counters above are per file, so by default a write to any table makes
+//! every live query stale. [`track`] narrows that. It gives a table three
+//! triggers that bump a per-table version in `sqlanywhere_live_tables`, and a
+//! live query whose tables are all tracked compares those versions instead:
+//! writes elsewhere in the file no longer make it re-run.
+//!
+//! Which tables a query reads is read from its `EXPLAIN`, so views, joins,
+//! subqueries and covering indexes are followed to the tables underneath. The
+//! versions are ordinary rows written in the same transaction as the change,
+//! so they reach other connections and embedded replicas exactly when the
+//! change does. [`LiveQuery::watched_tables`] says which mode a query is in.
 
 use std::collections::HashMap;
 
 use crate::params::{IntoParams, Params};
-use crate::{Connection, Error, Result, Value};
+use crate::{params, Connection, Error, Result, Value};
+
+/// One row per tracked table: its name and a version that every insert,
+/// update and delete on it bumps.
+const TRACKED: &str = "sqlanywhere_live_tables";
+
+/// Give `table` the triggers that let a live query tell its writes from writes
+/// to other tables. Idempotent.
+///
+/// The cost is one extra row update per row written to `table`. Run it where
+/// writes are made: on an embedded replica it goes to the primary like any
+/// other DDL, and the versions come back with the frames.
+pub async fn track(conn: &Connection, table: &str) -> Result<()> {
+    // Nothing is looked up locally first: on an embedded replica the table
+    // may so far exist only on the primary, where all of this runs.
+    let tx = conn.transaction().await?;
+    tx.execute(CREATE_TRACKED, ()).await?;
+    // The name as the schema spells it, so it matches the tables found in a
+    // query plan. With no such table nothing is inserted, and the first
+    // trigger below fails and rolls this back.
+    tx.execute(
+        &format!(
+            "INSERT OR IGNORE INTO {TRACKED} (tbl) \
+             SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ? COLLATE NOCASE"
+        ),
+        params![table],
+    )
+    .await?;
+    let bump = format!(
+        "UPDATE {TRACKED} SET version = version + 1 WHERE tbl = {}",
+        literal(table)
+    );
+    for (suffix, event) in TRIGGERS {
+        tx.execute(
+            &format!(
+                "CREATE TRIGGER IF NOT EXISTS {} AFTER {event} ON {} BEGIN {bump}; END",
+                ident(&trigger(table, suffix)),
+                ident(table)
+            ),
+            (),
+        )
+        .await?;
+    }
+    tx.commit().await
+}
+
+/// Remove what [`track`] added for `table`. Live queries over it go back to
+/// watching the whole file.
+pub async fn untrack(conn: &Connection, table: &str) -> Result<()> {
+    let tx = conn.transaction().await?;
+    for (suffix, _) in TRIGGERS {
+        tx.execute(
+            &format!("DROP TRIGGER IF EXISTS {}", ident(&trigger(table, suffix))),
+            (),
+        )
+        .await?;
+    }
+    // Created if missing rather than checked for, since a replica's copy of
+    // the schema can lag the primary's.
+    tx.execute(CREATE_TRACKED, ()).await?;
+    tx.execute(
+        &format!("DELETE FROM {TRACKED} WHERE tbl = ?"),
+        params![table],
+    )
+    .await?;
+    tx.commit().await
+}
+
+/// Table names compare without case, as SQLite's identifiers do.
+const CREATE_TRACKED: &str = "CREATE TABLE IF NOT EXISTS sqlanywhere_live_tables \
+    (tbl TEXT PRIMARY KEY COLLATE NOCASE, version INTEGER NOT NULL DEFAULT 0)";
+
+const TRIGGERS: [(&str, &str); 3] = [("ins", "INSERT"), ("upd", "UPDATE"), ("del", "DELETE")];
+
+fn trigger(table: &str, suffix: &str) -> String {
+    format!("sqlanywhere_live_{table}_{suffix}")
+}
+
+async fn has_table(conn: &Connection, table: &str) -> Result<bool> {
+    let mut rows = conn
+        .query(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?",
+            params![table],
+        )
+        .await?;
+    Ok(rows.next().await?.is_some())
+}
 
 /// A query whose result is kept current by [`refresh`](LiveQuery::refresh).
 pub struct LiveQuery {
@@ -57,7 +157,17 @@ pub struct LiveQuery {
     key: Option<Vec<usize>>,
     columns: Vec<String>,
     rows: Vec<Vec<Value>>,
+    watch: Watch,
     seen: Seen,
+}
+
+/// What a live query compares to decide it is stale.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Watch {
+    /// The whole file: `data_version` and `total_changes`.
+    File,
+    /// The versions of these tracked tables, by name.
+    Tables(Vec<String>),
 }
 
 /// How the result changed between two refreshes.
@@ -82,8 +192,22 @@ impl Diff {
 /// The change counters as of the last run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Seen {
-    data_version: i64,
-    total_changes: u64,
+    /// Bumped by any schema change, including one made on this connection,
+    /// which neither counter below sees. A query's tables are worked out again
+    /// when it moves.
+    schema_version: i64,
+    changes: Changes,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Changes {
+    File {
+        data_version: i64,
+        total_changes: u64,
+    },
+    /// Versions only grow, so their sum moves on every write to a watched
+    /// table. The count notices a table that stopped being tracked.
+    Tables { sum: i64, count: i64 },
 }
 
 impl LiveQuery {
@@ -97,11 +221,13 @@ impl LiveQuery {
             key: None,
             columns: Vec::new(),
             rows: Vec::new(),
+            watch: Watch::File,
             seen: Seen {
-                data_version: 0,
-                total_changes: 0,
+                schema_version: 0,
+                changes: Changes::Tables { sum: 0, count: 0 },
             },
         };
+        live.watch = live.resolve_watch().await?;
         live.seen = live.counters().await?;
         let (columns, rows) = live.run().await?;
         live.columns = columns;
@@ -129,10 +255,21 @@ impl LiveQuery {
         &self.rows
     }
 
+    /// The tables whose writes make this query stale, or `None` when any write
+    /// to the file does. It is `Some` when every table the query reads is
+    /// [`track`]ed; a table that is not, a virtual table (FTS5, `vector_top_k`,
+    /// a table-valued pragma) or a table in another schema makes it `None`.
+    pub fn watched_tables(&self) -> Option<&[String]> {
+        match &self.watch {
+            Watch::File => None,
+            Watch::Tables(tables) => Some(tables),
+        }
+    }
+
     /// Whether anything that could change the result has been written since
-    /// the last refresh. One pragma; it does not run the query. A `true` can
-    /// still lead to an empty refresh, when the write did not touch this
-    /// result.
+    /// the last refresh. One small query; it does not run the live one. A
+    /// `true` can still lead to an empty refresh, when the write did not touch
+    /// this result.
     pub async fn is_stale(&self) -> Result<bool> {
         Ok(self.counters().await? != self.seen)
     }
@@ -147,7 +284,14 @@ impl LiveQuery {
         }
         // Read the counters before the query, so a write landing while it
         // runs is seen as a change by the next refresh rather than lost.
-        self.seen = now;
+        self.seen = if now.schema_version != self.seen.schema_version {
+            // Tables may have been tracked, untracked, dropped or rebuilt
+            // under new root pages: work out again what to watch.
+            self.watch = self.resolve_watch().await?;
+            self.counters().await?
+        } else {
+            now
+        };
         let (columns, rows) = self.run().await?;
         let diff = match &self.key {
             Some(key) => keyed_diff(&self.rows, &rows, key)?,
@@ -164,21 +308,135 @@ impl LiveQuery {
         // primary, which answers with the primary's counter for a fresh stream
         // and turns this one-pragma check into a network round trip. A SELECT
         // is served from the replica's own file.
-        let mut rows = self
-            .conn
-            .query("SELECT data_version FROM pragma_data_version()", ())
-            .await?;
-        let data_version = match rows.next().await? {
-            Some(row) => row.get::<i64>(0)?,
-            None => {
-                return Err(Error::Misuse(
-                    "data_version returned nothing; live queries need a local database".into(),
-                ))
+        let schema = "(SELECT schema_version FROM pragma_schema_version())";
+        let mut rows = match &self.watch {
+            Watch::File => {
+                self.conn
+                    .query(
+                        &format!("SELECT {schema}, data_version FROM pragma_data_version()"),
+                        (),
+                    )
+                    .await?
+            }
+            Watch::Tables(tables) => {
+                let names = tables.iter().map(|t| Value::Text(t.clone())).collect();
+                self.conn
+                    .query(
+                        &format!(
+                            "SELECT {schema}, coalesce(sum(version), 0), count(*) \
+                             FROM {TRACKED} WHERE tbl IN ({})",
+                            vec!["?"; tables.len()].join(", ")
+                        ),
+                        Params::Positional(names),
+                    )
+                    .await?
             }
         };
+        let Some(row) = rows.next().await? else {
+            return Err(Error::Misuse(
+                "data_version returned nothing; live queries need a local database".into(),
+            ));
+        };
+        let changes = match &self.watch {
+            Watch::File => Changes::File {
+                data_version: row.get(1)?,
+                total_changes: self.conn.total_changes(),
+            },
+            Watch::Tables(_) => Changes::Tables {
+                sum: row.get(1)?,
+                count: row.get(2)?,
+            },
+        };
         Ok(Seen {
-            data_version,
-            total_changes: self.conn.total_changes(),
+            schema_version: row.get(0)?,
+            changes,
+        })
+    }
+
+    /// Work out what to watch: the tables the query's plan opens, when every
+    /// one of them is tracked, or else the whole file.
+    async fn resolve_watch(&self) -> Result<Watch> {
+        // EXPLAIN, not the authorizer: it works through any connection,
+        // embedded replicas included, and shows what the plan really opens.
+        let mut plan = self
+            .conn
+            .query(&format!("EXPLAIN {}", self.sql), self.params.clone())
+            .await?;
+        let mut roots = Vec::new();
+        while let Some(op) = plan.next().await? {
+            let opcode = op.get::<String>(1)?;
+            match opcode.as_str() {
+                "OpenRead" | "ReopenIdx" => {
+                    let (root, db, p5) = (op.get::<i64>(3)?, op.get::<i64>(4)?, op.get::<i64>(6)?);
+                    // P3 is the schema (0 is main); P5's OPFLAG_P2ISREG means P2
+                    // is a register holding the root page, not the page.
+                    if db != 0 || p5 & 0x10 != 0 {
+                        return Ok(Watch::File);
+                    }
+                    roots.push(root);
+                }
+                // A virtual table's reads cannot be traced to tracked tables.
+                "VOpen" => return Ok(Watch::File),
+                _ => {}
+            }
+        }
+        drop(plan);
+
+        let mut by_root = HashMap::new();
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT rootpage, tbl_name FROM sqlite_schema WHERE rootpage > 0",
+                (),
+            )
+            .await?;
+        while let Some(row) = rows.next().await? {
+            by_root.insert(row.get::<i64>(0)?, row.get::<String>(1)?);
+        }
+        drop(rows);
+        let mut tables = Vec::new();
+        for root in roots {
+            // Root page 1 is sqlite_schema itself, which has no entry.
+            let Some(table) = by_root.get(&root) else {
+                return Ok(Watch::File);
+            };
+            if !tables.contains(table) {
+                tables.push(table.clone());
+            }
+        }
+        tables.sort();
+
+        if tables.is_empty() || !has_table(&self.conn, TRACKED).await? {
+            return Ok(Watch::File);
+        }
+        // A table counts as tracked when it has its version row and its three
+        // triggers. DROP TABLE takes the triggers and leaves the row, so a
+        // table created again under the same name has only the row.
+        let mut tracked = Vec::new();
+        let mut rows = self
+            .conn
+            .query(
+                &format!(
+                    "SELECT t.tbl FROM {TRACKED} t WHERE (SELECT count(*) FROM sqlite_schema s \
+                     WHERE s.type = 'trigger' AND s.tbl_name = t.tbl COLLATE NOCASE \
+                     AND s.name COLLATE NOCASE IN ({})) = {}",
+                    TRIGGERS
+                        .iter()
+                        .map(|(suffix, _)| format!("'sqlanywhere_live_' || t.tbl || '_{suffix}'"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    TRIGGERS.len()
+                ),
+                (),
+            )
+            .await?;
+        while let Some(row) = rows.next().await? {
+            tracked.push(row.get::<String>(0)?);
+        }
+        Ok(if tables.iter().all(|t| tracked.contains(t)) {
+            Watch::Tables(tables)
+        } else {
+            Watch::File
         })
     }
 
@@ -197,6 +455,14 @@ impl LiveQuery {
         }
         Ok((columns, out))
     }
+}
+
+fn ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+fn literal(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
 }
 
 /// A byte encoding of values that is equal exactly when the values are, so

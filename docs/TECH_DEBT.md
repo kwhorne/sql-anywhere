@@ -39,7 +39,6 @@
 |------|------|-------------|
 | `namespace/store.rs` | 435 | Default namespace check is in the wrong place |
 | `namespace/configurator/helpers.rs` | 60 | Per-db configuration not figured out |
-| `namespace/configurator/helpers.rs` | 76 | Bug in `logger::checkpoint_db` — using regular checkpointing as workaround |
 | `namespace/configurator/helpers.rs` | 228 | Bottomless requires proper config; not enforced |
 | `namespace/configurator/primary.rs` | 133 | Namespace creation is not truly atomic; consider temp dirs |
 | `namespace/meta_store.rs` | 558 | Metastore restore correctness not guaranteed |
@@ -50,7 +49,6 @@
 | `replication/snapshot_store.rs` | 155 | Blocking I/O in async context (should be async) |
 | `replication/primary/logger.rs` | 109 | Should take a file lock to prevent concurrent writes |
 | `replication/primary/logger.rs` | 397 | Dest path never changes; should be stored/cached |
-| `replication/primary/logger.rs` | 824 | Calling rusqlite checkpoint is a bug; needs custom impl |
 | `rpc/proxy.rs` | 558 | Missing tracking of recently disconnected clients |
 | `rpc/proxy.rs` | 688 | Copy-pasted code from `execute()` — extract to helper |
 | `rpc/proxy.rs` | 731 | Double `map_err` looks incorrect |
@@ -178,14 +176,19 @@
 ## Recommended priorities
 
 ### P0 — Safety / correctness
-1. `replication/primary/logger.rs:824` — Wrong checkpoint implementation
-2. `bottomless/wal.rs:248` — Host-endianness assumption breaks big-endian
+1. `bottomless/wal.rs:248` — Host-endianness assumption breaks big-endian
 
 ### Resolved
 - `local/rows.rs` — `unsafe impl Send/Sync` now carries a `SAFETY` argument (`dc56487`)
 - `bottomless/replicator.rs` — `wait_until_snapshotted` rewritten with checked results (`dc56487`)
 - `namespace/store.rs` — delete-during-fork race: the source is checked under its
   entry lock, not before it (`dc56487`)
+- `replication/primary/logger.rs` — `checkpoint_db`. Its plain connection is
+  deliberate: it runs at startup, before the WAL wrappers exist, so that
+  recovery and bottomless start from the database file. What was wrong is that
+  it opened a database encrypted at rest without the cipher and key, so a
+  primary that crashed with frames in its WAL could not start again; it now
+  takes the encryption config, tested by crashing an encrypted database.
 
 ### P1 — Data integrity
 6. `replication/primary/logger.rs:109` — Missing file lock

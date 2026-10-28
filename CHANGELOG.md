@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A primary encrypted at rest could not restart after a crash.** The
+  checkpoint `sqld` runs at startup, before recovery rebuilds the replication
+  log and before bottomless starts, opened the database without its cipher and
+  key; with frames left in the WAL it failed with "file is not a database". It
+  now opens it like every other connection to an encrypted database.
 - **`vector_top_k` could not take its query vector from another table.**
   `FROM q, vector_top_k('idx', q.v, 10)` and the same as a correlated subquery
   failed with "xBestIndex malfunction": the virtual table accepted a plan in

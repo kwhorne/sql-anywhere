@@ -521,6 +521,8 @@ async fn fork_with(
 /// `path` must not exist yet, or be empty. Open it afterwards with the extension loaded and
 /// use it as any branch; [`diff`], [`merge`] and [`pull`] cannot tell the two
 /// kinds of fork apart. `main` must be a local database.
+#[cfg(feature = "core")]
+#[cfg_attr(docsrs, doc(cfg(feature = "core")))]
 pub async fn fork_file(main: &Connection, path: &str) -> Result<BranchInfo> {
     let parent_site_id = blob(&one(main, "SELECT crsql_site_id()", ()).await?)?;
     // Refuses a file that exists and is not empty.

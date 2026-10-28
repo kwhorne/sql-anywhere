@@ -120,8 +120,12 @@ engine wherever possible.
       its own `EXPLAIN`, on replicas too. Next: push diffs from `sqld` to
       remote clients over Hrana.
 - [ ] **Selective / partial replication** — replicate only rows matching a
-      predicate (per-user / per-tenant) instead of the whole database.
-      *(high effort)*
+      predicate (per-user / per-tenant) instead of the whole database. First
+      step shipped: partial branches, where a `Lens` (a relational or
+      `vector_top_k` predicate per table) chooses the rows a branch holds and
+      `pull_lens` keeps them current (see
+      [docs/BRANCHES.md](BRANCHES.md#partial-branches-a-lens)). Next: the same
+      between a device and `sqld`, over Hrana. *(high effort)*
 - [ ] **Browser / WASM build** — a working `sqlanywhere` in the browser with
       OPFS persistence + sync, from the existing `bindings/wasm`. *(medium–high
       effort)*

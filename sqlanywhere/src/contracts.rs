@@ -374,9 +374,9 @@ pub mod cache {
     ///   value = CAST(
     ///     CASE WHEN expires_at IS NOT NULL AND expires_at <= unixepoch()
     ///          THEN 0 ELSE value END AS INTEGER) + :delta
-    /// RETURNING CAST(value AS INTEGER);
+    /// RETURNING CAST(value AS INTEGER) AS value;
     /// ```
-    pub const INCREMENT: &str = "INSERT INTO askr_cache (key, value, expires_at)\nVALUES (:key, :delta, :expires_at)\nON CONFLICT(key) DO UPDATE SET\n  value = CAST(\n    CASE WHEN expires_at IS NOT NULL AND expires_at <= unixepoch()\n         THEN 0 ELSE value END AS INTEGER) + :delta\nRETURNING CAST(value AS INTEGER)";
+    pub const INCREMENT: &str = "INSERT INTO askr_cache (key, value, expires_at)\nVALUES (:key, :delta, :expires_at)\nON CONFLICT(key) DO UPDATE SET\n  value = CAST(\n    CASE WHEN expires_at IS NOT NULL AND expires_at <= unixepoch()\n         THEN 0 ELSE value END AS INTEGER) + :delta\nRETURNING CAST(value AS INTEGER) AS value";
 
     /// Run [`INCREMENT`] and return its one row.
     pub async fn increment(

@@ -36,7 +36,8 @@ engine wherever possible.
       language-neutral `contracts.json`, and CI fails when a document changes
       without them. Askr can call the contracts instead of transcribing them.
       See [docs/contracts/README.md](contracts/README.md#generated-api).
-      Next: PHP and TypeScript clients generated from `contracts.json`.
+      The same generator writes a PHP client on PDO (`clients/php`), tested
+      in CI on PHP 8.1 and 8.4. Next: a TypeScript client.
 - [x] **Storage primitives as chapters, not products** — a KV cache with TTL, a
       durable work queue (atomic `UPDATE … RETURNING` claim, at-least-once), and
       pub/sub over the replication log, all composed in plain SQL. See

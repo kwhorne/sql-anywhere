@@ -1,0 +1,35 @@
+name: PHP contract client
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "clients/php/**"
+      - "docs/contracts/**"
+      - "xtask/src/contracts.rs"
+      - ".github/workflows/php-client.yml"
+  pull_request:
+    paths:
+      - "clients/php/**"
+      - "docs/contracts/**"
+      - "xtask/src/contracts.rs"
+      - ".github/workflows/php-client.yml"
+
+jobs:
+  php-client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: [ "8.1", "8.4" ]
+    name: PHP ${{ matrix.php }} contract client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo, pdo_sqlite
+          coverage: none
+      - name: Lint the generated classes
+        run: for f in clients/php/src/*.php; do php -l "$f"; done
+      - name: Run the contract API checks
+        run: php clients/php/tests/contracts_test.php

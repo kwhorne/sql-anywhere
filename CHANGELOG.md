@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A PHP client for the storage contracts.** `cargo xtask gen-contracts` now
+  also writes `clients/php/src/`: `Queue`, `Cache` and `PubSub` classes on
+  PDO with `install()` and one typed static method per operation, rows as
+  arrays by column name, multi-statement operations in one transaction
+  (`BEGIN IMMEDIATE` where the contract says so) that rolls back on failure,
+  and payloads bound as blobs. It is generated from the same documents as the
+  Rust API, so `generated_contracts_are_fresh` fails CI when it falls behind,
+  and a new workflow runs its checks on PHP 8.1 and 8.4. A Composer package
+  (`sqlanywhere/contracts`, PSR-4). See [clients/php](clients/php/README.md).
 - **`vector_index_stats('index')`.** A SQL function in the engine that
   describes a DiskANN index as JSON: its parameters with defaults filled in
   (metric, vector type, dimensions, `compress_neighbors`, block size, maximum
@@ -28,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns by name. No CRRs or history needed; works on a local file and,
   inside a transaction, on `sqld`. See
   [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md#what-changed-and-what-changed-meaning).
+
+### Changed
+
+- **The cache contract's Increment names its column `value`.** It returned
+  `CAST(value AS INTEGER)` unaliased, which a client reading columns by name
+  saw as that expression; the result is unchanged.
 
 ### Fixed
 

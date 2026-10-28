@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vector_index_stats('index')`.** A SQL function in the engine that
+  describes a DiskANN index as JSON: its parameters with defaults filled in
+  (metric, vector type, dimensions, `compress_neighbors`, block size, maximum
+  neighbours, `alpha`, `search_l`, `insert_l`), how many nodes it holds, how
+  many neighbours they have on average, how many have none or are full, and
+  how many bytes its node blocks take. Works from every client and `sqld`.
+  With `rows_read` (every node a search visits counts as a row read) and a
+  recall@k query in plain SQL, this is the tuning view the roadmap asked for.
+  See [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
 - **`sqlanywhere::compare`: what changed between two versions of a table, and
   how far its embeddings moved.** `compare::table(&conn, table, before,
   after)` compares a table with itself in an attached schema (a namespace at a
@@ -19,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   columns by name. No CRRs or history needed; works on a local file and,
   inside a transaction, on `sqld`. See
   [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md#what-changed-and-what-changed-meaning).
+
+### Fixed
+
+- **`vector_top_k` could not take its query vector from another table.**
+  `FROM q, vector_top_k('idx', q.v, 10)` and the same as a correlated subquery
+  failed with "xBestIndex malfunction": the virtual table accepted a plan in
+  which the vector argument was not available yet. It now refuses such a plan,
+  so SQLite puts the other table first, and a top-k per row works.
 
 ## [0.8.0] - 2026-10-28
 

@@ -5,6 +5,22 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Interests: standing vector queries.** `Interests::on(table, column)`
+  registers vectors with a cosine distance (`subscribe`, or `subscribe_text`
+  through an embedder), and every write that puts a row's vector within reach
+  of one publishes an event on its channel through the pub/sub contract:
+  `{"table", "column", "rowid", "interest", "distance"}`, nearest first. Two
+  triggers do the matching, so it works whoever writes the vector (the
+  application, an embedding column worker, a branch merge, an embedded
+  replica's primary), in the same transaction as the write; a value that is not
+  a vector of the right size matches nothing rather than failing the write.
+  `matching(rowid)` shows what a row matches now. See
+  [docs/INTERESTS.md](docs/INTERESTS.md).
+
 ## [0.8.0] - 2026-10-28
 
 Branches and live queries, made safe to leave running on their own. Jobs a
@@ -668,6 +684,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2

@@ -71,6 +71,13 @@ engine wherever possible.
 - [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
       ~5.5× smaller). Next: auto-select a default based on index size and a
       recall/size knob. *(shipped opt-in; auto-default still open)*
+- [x] **Interests: standing vector queries** — register a vector and a
+      distance, and every write that puts a row's vector within reach
+      publishes on the pub/sub contract, in the same transaction, whoever
+      wrote it (app, embedding worker, merge, replica's primary). See
+      [docs/INTERESTS.md](INTERESTS.md); verified
+      (`sqlanywhere/tests/interests.rs`). Next: a vector index over the
+      interests themselves for very many of them.
 - [ ] **`EXPLAIN` for the DiskANN index** — expose visited-node counts and a
       recall estimate for query tuning. *(medium effort)*
 

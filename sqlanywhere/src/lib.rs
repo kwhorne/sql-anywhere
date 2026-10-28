@@ -162,6 +162,7 @@ pub mod contracts;
 mod database;
 mod embed;
 pub mod embedding_column;
+pub mod interests;
 pub mod live;
 mod load_extension_guard;
 

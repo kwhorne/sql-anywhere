@@ -53,6 +53,43 @@ timestamp, which this is built on.
   Repeating the request returns the namespace with the expiry it was made
   with. A plain `fork` of it does not inherit the expiry.
 
+## What changed, and what changed meaning
+
+The join above answers one question about one column. `sqlanywhere::compare`
+answers the general one for a whole table: every row inserted, updated or
+deleted between the two versions, the columns that differ with their before
+and after values, and, for a vector column, how far each embedding moved:
+
+```rust
+use sqlanywhere::compare;
+
+// On sqld, ATTACH holds only inside a transaction: compare on that transaction.
+let tx = conn.transaction().await?;
+tx.execute(r#"ATTACH "docs@20261021T120000Z" AS past"#, ()).await?;
+let diff = compare::table(&tx, "articles", "past", "main").await?;
+tx.commit().await?;
+
+// Which articles changed meaning most since last Tuesday?
+for (row, distance) in diff.moved("embedding").iter().take(10) {
+    println!("{:?} moved {distance:.3}", row.key);
+}
+// What was deleted?
+for row in diff.of_kind(compare::RowKind::Deleted) { /* restore it? */ }
+```
+
+Rows are matched by the primary key, or by rowid when there is none, and
+columns by name, so a column added or dropped since is listed in
+`added_columns` / `dropped_columns` instead of failing the comparison. NULL to
+a value counts as a change; writing the same value does not. Nothing has to be
+set up in advance: the tables need not be CRRs, unlike
+[branches](BRANCHES.md), and the comparison is SQL over both versions, so it
+works the same on a local file with an older copy attached. It reads both
+versions in full.
+
+Verified: `sqlanywhere/tests/compare.rs` (against a `VACUUM INTO` snapshot)
+and, through `sqld` with an attached namespace,
+`sqlanywhere-server/tests/standalone/attach.rs::compare_with_an_attached_namespace`.
+
 ## Precision
 
 Bottomless writes the WAL to object storage in batches, every

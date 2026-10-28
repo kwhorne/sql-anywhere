@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   With `rows_read` (every node a search visits counts as a row read) and a
   recall@k query in plain SQL, this is the tuning view the roadmap asked for.
   See [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
+- **`sqlanywhere::compare`: what changed between two versions of a table, and
+  how far its embeddings moved.** `compare::table(&conn, table, before,
+  after)` compares a table with itself in an attached schema (a namespace at a
+  moment from `/at`, an older copy of the file) and returns every row
+  inserted, updated or deleted, the columns that differ with before and after,
+  and the cosine distance for vector columns; `TableDiff::moved(column)` lists
+  rows by how far their vector moved. Rows match by primary key or rowid,
+  columns by name. No CRRs or history needed; works on a local file and,
+  inside a transaction, on `sqld`. See
+  [docs/TIME_TRAVEL.md](docs/TIME_TRAVEL.md#what-changed-and-what-changed-meaning).
 
 ### Fixed
 

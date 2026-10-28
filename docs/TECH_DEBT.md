@@ -1,7 +1,9 @@
 # Technical Debt Inventory
 
 > Auto-generated from source markers (TODO, FIXME, HACK, XXX).
-> Last updated: 2026-06-23 · **97 markers** (35 FIXME, 59 TODO, 1 HACK, 2 XXX)
+> Inventoried 2026-06-23 · **97 markers** (35 FIXME, 59 TODO, 1 HACK, 2 XXX).
+> Pruned 2026-10-28: three P0 items fixed in `dc56487` are removed below and
+> listed under *Resolved*. Line numbers are from the inventory and may have drifted.
 
 ## Summary by area
 
@@ -35,7 +37,6 @@
 
 | File | Line | Description |
 |------|------|-------------|
-| `namespace/store.rs` | 238 | Could delete namespace while trying to fork it |
 | `namespace/store.rs` | 435 | Default namespace check is in the wrong place |
 | `namespace/configurator/helpers.rs` | 60 | Per-db configuration not figured out |
 | `namespace/configurator/helpers.rs` | 76 | Bug in `logger::checkpoint_db` — using regular checkpointing as workaround |
@@ -74,7 +75,6 @@
 | File | Line | Description |
 |------|------|-------------|
 | `wal.rs` | 248 | Computations use host endianness — broken on big-endian |
-| `replicator.rs` | 617 | Function is likely buggy; output not checked |
 | `replicator.rs` | 1100 | Can't rely on change counter in WAL mode |
 | `replicator.rs` | 1171 | Assumes bucket stores only generation data |
 
@@ -94,7 +94,6 @@
 | `params.rs` | 259 | Consider renaming trait to `ToSql` |
 | `local/mod.rs` | 1 | Decide what to keep from local module |
 | `local/impls.rs` | 47 | Can we reuse the conn passed to the transaction? |
-| `local/rows.rs` | 20–21 | `unsafe impl Send/Sync for Rows` — safety not verified (2×) |
 | `replication/client.rs` | 110 | Map errors correctly |
 | `replication/mod.rs` | 121 | Pass params to replication |
 | `replication/remote_client.rs` | 178 | Check if `4096 * frames.len()` is correct |
@@ -179,11 +178,14 @@
 ## Recommended priorities
 
 ### P0 — Safety / correctness
-1. `local/rows.rs:20-21` — `unsafe impl Send/Sync` without safety proof
-2. `bottomless/replicator.rs:617` — Buggy function (output not checked)
-3. `bottomless/wal.rs:248` — Host-endianness assumption breaks big-endian
-4. `namespace/store.rs:238` — Race: delete namespace during fork
-5. `replication/primary/logger.rs:824` — Wrong checkpoint implementation
+1. `replication/primary/logger.rs:824` — Wrong checkpoint implementation
+2. `bottomless/wal.rs:248` — Host-endianness assumption breaks big-endian
+
+### Resolved
+- `local/rows.rs` — `unsafe impl Send/Sync` now carries a `SAFETY` argument (`dc56487`)
+- `bottomless/replicator.rs` — `wait_until_snapshotted` rewritten with checked results (`dc56487`)
+- `namespace/store.rs` — delete-during-fork race: the source is checked under its
+  entry lock, not before it (`dc56487`)
 
 ### P1 — Data integrity
 6. `replication/primary/logger.rs:109` — Missing file lock

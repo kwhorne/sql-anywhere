@@ -1,0 +1,19 @@
+{
+    "name": "sqlanywhere/contracts",
+    "description": "The SQL Anywhere storage contracts (queue, cache, pub/sub) as a typed PHP API on PDO, generated from docs/contracts.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "ext-pdo_sqlite": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "SqlAnywhere\\Contracts\\": "src/"
+        }
+    },
+    "scripts": {
+        "test": "php tests/contracts_test.php"
+    }
+}

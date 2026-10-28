@@ -53,15 +53,18 @@ several statements runs them in one transaction, `IMMEDIATE` when the contract
 spells `BEGIN IMMEDIATE`.
 
 `cargo xtask gen-contracts` compiles the annotated documents and the parameter
-table below into two files:
+table below into:
 
 - [`sqlanywhere/src/contracts.rs`](../../sqlanywhere/src/contracts.rs), the
   typed Rust API: `sqlanywhere::contracts::queue::claim(&conn, visibility, queue)`
   and so on, plus each contract's `install` and the statements as constants.
+- [`clients/php/src/`](../../clients/php), the same API for PHP on PDO:
+  `Queue::claim($db, $visibility, $queue)` and so on, rows as arrays by column
+  name. See [its README](../../clients/php/README.md).
 - [`contracts.json`](./contracts.json), the same operations as data, for
   generating a client in any other language.
 
-Neither file is edited by hand. `generated_contracts_are_fresh` in `xtask`
+None of these files is edited by hand. `generated_contracts_are_fresh` in `xtask`
 fails CI when a document changes without them being regenerated, so the API is
 always the SQL this page publishes and the conformance tests prove.
 

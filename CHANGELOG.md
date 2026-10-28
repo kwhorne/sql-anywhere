@@ -5,7 +5,22 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-29
+
+Every idea from the review after 0.7.0, built and released. The present can be
+compared with the past, and an embedding says how far its meaning moved; a
+vector can wait for rows to come near it instead of being searched for; a
+large database forks from a copy of its file, and a branch can hold only the
+rows a lens selects, chosen by a predicate or by meaning; a DiskANN index can
+be looked inside and its recall measured in SQL; and the storage contracts
+get a PHP client. Two fixes matter in production: a primary encrypted at rest
+can restart after a crash that left frames in its WAL, and `vector_top_k`
+takes its query vector from another table, a top-k per row.
+
+No file-format changes. New tables appear only when a feature is installed
+(`sqlanywhere_interests`, `sqlanywhere_branch` in a branch). The cache
+contract's Increment now names its column `value`; positional readers see no
+difference.
 
 ### Added
 
@@ -749,7 +764,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
-[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.8.0...HEAD
+[0.9.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2

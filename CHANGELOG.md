@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SQLD_URL`; CI fails when a contract changes without the client. See
   [clients/typescript/README.md](clients/typescript/README.md).
 
+- **Branches of a `sqld` namespace, merged three ways.**
+  `POST /v1/namespaces/:ns/branch/:name` forks the namespace twice: the
+  branch, writable, and `name@base`, the same moment read-only, both
+  attachable. `sqlanywhere::merge3::Merge3` then compares, from a connection
+  to the live namespace, what the branch changed since the base and what the
+  live side changed meanwhile, and merges in one `IMMEDIATE` transaction:
+  rows only one side changed are applied, updates to different columns of a
+  row both stand, and rows changed differently on both sides are conflicts
+  (refuse, keep main, or take the branch). Ordinary tables, no CRDT, no
+  history; the rows are copied with SQL from the attached branch. Internal,
+  virtual and shadow tables are left out, and `skip` leaves out more; schema
+  changes refuse the merge. Works on local files too. See
+  [docs/BRANCHES.md](docs/BRANCHES.md#branches-of-a-sqld-namespace).
+
 - **Live queries over `sqld`: `LiveQuery::wait`.** A client connected to
   `sqld` over HTTP, with no database file of its own, waits for the server to
   announce a commit that changes its result and gets the diff, without
@@ -51,6 +65,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use it.
 
 ### Fixed
+
+- **A transaction that wrote to main and read an attached namespace aborted
+  `sqld`.** Each database a connection has open, its own and every attached
+  one, has a WAL that goes through the connection's write slot under the
+  connection's id. When the attached database ended its read transaction it
+  gave back the slot that main's write was holding, and main's commit then
+  found no slot to release: an `unreachable!` in a function that cannot
+  unwind, so the process aborted. `INSERT INTO main.t SELECT … FROM
+  attached.t` in a transaction was enough. Only the WAL that took the slot now
+  gives it back.
 
 - **`/beta/listen` announced commits before they were done, and could miss the
   first one.** The announcement went out from SQLite's commit hook, which runs
@@ -432,7 +456,6 @@ No API or file-format changes.
   being a backstop rather than the mechanism. Reproduced at roughly one run in
   four on slow storage before, 40 out of 40 clean after, and the full server
   suite is green across repeated runs.
-
 
 - **The server library no longer calls `std::process::exit` on a failed
   shutdown.** `Server::start` killed the host process when graceful shutdown

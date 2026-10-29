@@ -118,8 +118,11 @@ engine wherever possible.
       on their own. See [docs/BRANCHES.md](BRANCHES.md); verified
       (`sqlanywhere/tests/branch.rs`).
       `fork_file` forks a large database by copying the file (~19× faster at
-      20k rows). Next: branches of a `sqld`
-      namespace over HTTP.
+      20k rows). A `sqld` namespace is branched with
+      `POST /v1/namespaces/:ns/branch/:name` (the branch and a frozen base)
+      and merged back three ways by `sqlanywhere::merge3`, row by row, no
+      CRDT (`namespaces::branch_a_namespace_and_merge_it_back`). Next: a lens
+      for namespace branches.
 - [x] **Live queries** — a query result that keeps itself current and returns a
       row-level diff (inserted / updated / deleted) instead of a fresh result,
       re-running only when something was written. Follows the connection's own

@@ -167,6 +167,7 @@ pub mod interests;
 pub mod live;
 mod load_extension_guard;
 pub mod merge3;
+pub mod recall;
 
 pub use embed::{embed, to_vector_literal, Embedder, LexicalEmbedder};
 

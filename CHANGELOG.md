@@ -5,6 +5,27 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`search_l` per query, and the recall it buys.** `vector_top_k(index,
+  vector, k, search_l)` overrides the index's `search_l` for one search, so
+  recall is traded for speed per query without rebuilding the index;
+  `hybrid_top_k` takes it as its seventh argument. `sqlanywhere::recall`
+  measures recall@k against an exact search over a sample of the table's own
+  rows, and `recall::tune` returns the smallest `search_l` that reaches a
+  target, with the recall at every step it tried. On 2000 vectors, recall@10
+  goes from 0.31 at `search_l` 10 to 0.97 at 400. See
+  [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
+
+### Fixed
+
+- **`vector_top_k` returned fewer than k rows when k exceeded `search_l`.**
+  The k best are picked from the search's candidates, of which there are
+  `search_l`: an index with the default 200 asked for 300 neighbours returned
+  201, without a word. `search_l` is now raised to k for that search.
+
 ## [0.10.0] - 2026-10-29
 
 Search, live results and branches reach the server. Hybrid retrieval is one
@@ -872,6 +893,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.10.0...HEAD
 [0.10.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.10.0
 [0.9.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0

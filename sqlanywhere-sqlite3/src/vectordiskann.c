@@ -1454,6 +1454,7 @@ int diskAnnSearch(
   DiskAnnIndex *pIndex,
   const Vector *pVector,
   int k,
+  int searchL,                /* candidate set size for this search, 0 for the index's own */
   const VectorIdxKey *pKey,
   VectorOutRows *pRows,
   char **pzErrMsg
@@ -1489,7 +1490,15 @@ int diskAnnSearch(
     *pzErrMsg = sqlite3_mprintf("vector index(search): failed to select start node for search");
     return rc;
   }
-  rc = diskAnnSearchCtxInit(pIndex, &ctx, pVector, pIndex->searchL, k, DISKANN_BLOB_READONLY);
+  if( searchL <= 0 ){
+    searchL = pIndex->searchL;
+  }
+  // the k best are picked from the candidates, so fewer than k candidates
+  // would return fewer than k rows
+  if( searchL < k ){
+    searchL = k;
+  }
+  rc = diskAnnSearchCtxInit(pIndex, &ctx, pVector, searchL, k, DISKANN_BLOB_READONLY);
   if( rc != SQLITE_OK ){
     *pzErrMsg = sqlite3_mprintf("vector index(search): failed to initialize search context");
     goto out;

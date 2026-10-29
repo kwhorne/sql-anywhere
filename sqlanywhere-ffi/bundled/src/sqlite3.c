@@ -86371,7 +86371,7 @@ struct DiskAnnIndex {
   int nEdgeVectorSize; /* Vector size of each edge in bytes */
   float pruningAlpha;  /* Alpha parameter for edge pruning during INSERT operation */
   int insertL;         /* Max size of candidate set (L) visited during INSERT operation */
-  int searchL;         /* Max size of candidate set (L) visited during SEARCH operation (can be overriden from query in future) */
+  int searchL;         /* Max size of candidate set (L) visited during SEARCH operation, unless the query gives its own */
 
   int nReads;
   int nWrites;
@@ -86479,6 +86479,8 @@ typedef u8 MetricType;
 
 #define VECTOR_SEARCH_L_PARAM_ID            9
 #define VECTOR_SEARCH_L_DEFAULT             200
+/* the largest search_l a query may ask for: the candidate set is allocated up front */
+#define VECTOR_SEARCH_L_MAX                 (1 << 20)
 
 #define VECTOR_MAX_NEIGHBORS_PARAM_ID       10
 
@@ -86574,7 +86576,7 @@ int diskAnnOpenIndex(sqlite3 *, const char *, const char *, const VectorIdxParam
 void diskAnnCloseIndex(DiskAnnIndex *);
 int diskAnnInsert(DiskAnnIndex *, const VectorInRow *, char **);
 int diskAnnDelete(DiskAnnIndex *, const VectorInRow *, char **);
-int diskAnnSearch(DiskAnnIndex *, const Vector *, int, const VectorIdxKey *, VectorOutRows *, char **);
+int diskAnnSearch(DiskAnnIndex *, const Vector *, int, int, const VectorIdxKey *, VectorOutRows *, char **);
 
 typedef struct VectorIdxCursor VectorIdxCursor;
 
@@ -217487,6 +217489,7 @@ int diskAnnSearch(
   DiskAnnIndex *pIndex,
   const Vector *pVector,
   int k,
+  int searchL,                /* candidate set size for this search, 0 for the index's own */
   const VectorIdxKey *pKey,
   VectorOutRows *pRows,
   char **pzErrMsg
@@ -217522,7 +217525,15 @@ int diskAnnSearch(
     *pzErrMsg = sqlite3_mprintf("vector index(search): failed to select start node for search");
     return rc;
   }
-  rc = diskAnnSearchCtxInit(pIndex, &ctx, pVector, pIndex->searchL, k, DISKANN_BLOB_READONLY);
+  if( searchL <= 0 ){
+    searchL = pIndex->searchL;
+  }
+  // the k best are picked from the candidates, so fewer than k candidates
+  // would return fewer than k rows
+  if( searchL < k ){
+    searchL = k;
+  }
+  rc = diskAnnSearchCtxInit(pIndex, &ctx, pVector, searchL, k, DISKANN_BLOB_READONLY);
   if( rc != SQLITE_OK ){
     *pzErrMsg = sqlite3_mprintf("vector index(search): failed to initialize search context");
     goto out;
@@ -219842,6 +219853,7 @@ int vectorIndexSearch(
   char **pzErrMsg
 ) {
   int type, dims, k, rc, iDb = -1;
+  int searchL = 0;                // 0: the index's own search_l
   double kDouble;
   const char *zIdxFullName;
   char *zIdxDbSNameAlloc = NULL;  // allocated managed schema name string - must be freed if not null
@@ -219856,10 +219868,20 @@ int vectorIndexSearch(
   VectorIdxParams idxParams;
   vectorIdxParamsInit(&idxParams, NULL, 0);
 
-  if( argc != 3 ){
-    *pzErrMsg = sqlite3_mprintf("vector index(search): got %d parameters, expected 3", argc);
+  if( argc != 3 && argc != 4 ){
+    *pzErrMsg = sqlite3_mprintf("vector index(search): got %d parameters, expected 3 or 4", argc);
     rc = SQLITE_ERROR;
     goto out;
+  }
+  if( argc == 4 && sqlite3_value_type(argv[3]) != SQLITE_NULL ){
+    // search_l for this search alone: more candidates, better recall, more nodes read
+    sqlite3_int64 searchL64 = sqlite3_value_int64(argv[3]);
+    if( sqlite3_value_type(argv[3]) != SQLITE_INTEGER || searchL64 < 1 || searchL64 > VECTOR_SEARCH_L_MAX ){
+      *pzErrMsg = sqlite3_mprintf("vector index(search): fourth parameter (search_l) must be an integer from 1 to %d", VECTOR_SEARCH_L_MAX);
+      rc = SQLITE_ERROR;
+      goto out;
+    }
+    searchL = (int)searchL64;
   }
   if( detectVectorParameters(argv[1], VECTOR_TYPE_FLOAT32, &type, &dims, pzErrMsg) != 0 ){
     rc = SQLITE_ERROR;
@@ -219954,7 +219976,7 @@ int vectorIndexSearch(
     rc = SQLITE_ERROR;
     goto out;
   }
-  rc = diskAnnSearch(pDiskAnn, pVector, k, &pKey, pRows, pzErrMsg);
+  rc = diskAnnSearch(pDiskAnn, pVector, k, searchL, &pKey, pRows, pzErrMsg);
 out:
   if( pDiskAnn != NULL ){
     *nReads += pDiskAnn->nReads;
@@ -220259,10 +220281,11 @@ struct vectorVtab_cursor {
 };
 
 /* Column numbers */
-#define VECTOR_COLUMN_IDX    0
-#define VECTOR_COLUMN_VECTOR 1
-#define VECTOR_COLUMN_K      2
-#define VECTOR_COLUMN_OFFSET 3
+#define VECTOR_COLUMN_IDX      0
+#define VECTOR_COLUMN_VECTOR   1
+#define VECTOR_COLUMN_K        2
+#define VECTOR_COLUMN_SEARCH_L 3
+#define VECTOR_COLUMN_OFFSET   4
 
 static int vectorVtabConnect(
   sqlite3 *db,
@@ -220277,7 +220300,7 @@ static int vectorVtabConnect(
    * name of the database ignored by SQLite - so we don't need to provide any schema prefix here
    * hidden column are parameters of table-valued function (see https://www.sqlite.org/vtab.html#table_valued_functions)
   */
-  rc = sqlite3_declare_vtab(db, "CREATE TABLE x(idx hidden, vector hidden, k hidden, id);");
+  rc = sqlite3_declare_vtab(db, "CREATE TABLE x(idx hidden, vector hidden, k hidden, search_l hidden, id);");
   if( rc != SQLITE_OK ){
     return rc;
   }
@@ -220377,7 +220400,7 @@ static int vectorVtabBestIndex(
   sqlite3_index_info *pIdxInfo
 ){
   const struct sqlite3_index_constraint *pConstraint;
-  int aUsable[3] = { -1, -1, -1 };  /* constraint for index, vector, k */
+  int aUsable[4] = { -1, -1, -1, -1 };  /* constraint for index, vector, k, search_l */
   int unusable = 0;                  /* bitmask of arguments known only later */
   int i, iArg, nArg = 0;
 
@@ -220392,6 +220415,7 @@ static int vectorVtabBestIndex(
       case VECTOR_COLUMN_IDX:    iArg = 0; break;
       case VECTOR_COLUMN_VECTOR: iArg = 1; break;
       case VECTOR_COLUMN_K:      iArg = 2; break;
+      case VECTOR_COLUMN_SEARCH_L: iArg = 3; break;
       default: continue;
     }
     if( pConstraint->usable ){
@@ -220406,12 +220430,12 @@ static int vectorVtabBestIndex(
   ** is not usable in this plan. Refuse the plan rather than search without
   ** it, so the planner puts that table first and passes its column in.
   */
-  for(iArg=0; iArg<3; iArg++){
+  for(iArg=0; iArg<4; iArg++){
     if( aUsable[iArg] < 0 && (unusable & (1 << iArg)) ){
       return SQLITE_CONSTRAINT;
     }
   }
-  for(iArg=0; iArg<3; iArg++){
+  for(iArg=0; iArg<4; iArg++){
     if( aUsable[iArg] >= 0 ){
       pIdxInfo->aConstraintUsage[aUsable[iArg]].argvIndex = ++nArg;
       pIdxInfo->aConstraintUsage[aUsable[iArg]].omit = 1;
@@ -220449,13 +220473,15 @@ static sqlite3_module vectorModule = {
 };
 
 /*
-** hybrid_top_k(vector_index, fts_table, vector, query, k [, rrf_k])
+** hybrid_top_k(vector_index, fts_table, vector, query, k [, rrf_k [, search_l]])
 **
 ** Fuses a vector ranking and an FTS5 keyword ranking with Reciprocal Rank
 ** Fusion: each ranker contributes its top k rows, a row scores
 ** 1/(rrf_k + rank) for every ranking it appears in, and the k best scores are
 ** returned, best first. A NULL vector or a NULL query leaves its ranker out.
-** Both rankings must be keyed by the same integer rowid.
+** search_l is passed to the vector search, as vector_top_k's fourth argument;
+** NULL for rrf_k or search_l means the default. Both rankings must be keyed by
+** the same integer rowid.
 */
 typedef struct HybridHit HybridHit;
 struct HybridHit {
@@ -220484,12 +220510,13 @@ struct hybridVtab_cursor {
 #define HYBRID_COLUMN_QUERY       3
 #define HYBRID_COLUMN_K           4
 #define HYBRID_COLUMN_RRF_K       5
-#define HYBRID_COLUMN_ID          6
-#define HYBRID_COLUMN_SCORE       7
-#define HYBRID_COLUMN_VECTOR_RANK 8
-#define HYBRID_COLUMN_FTS_RANK    9
+#define HYBRID_COLUMN_SEARCH_L    6
+#define HYBRID_COLUMN_ID          7
+#define HYBRID_COLUMN_SCORE       8
+#define HYBRID_COLUMN_VECTOR_RANK 9
+#define HYBRID_COLUMN_FTS_RANK    10
 
-#define HYBRID_N_ARGS        6
+#define HYBRID_N_ARGS        7
 #define HYBRID_N_REQUIRED    5
 #define HYBRID_RRF_K_DEFAULT 60
 
@@ -220503,7 +220530,7 @@ static int hybridVtabConnect(
   vectorVtab *pVtab = NULL;
   int rc;
   rc = sqlite3_declare_vtab(db,
-    "CREATE TABLE x(vector_index hidden, fts_table hidden, vector hidden, query hidden, k hidden, rrf_k hidden, "
+    "CREATE TABLE x(vector_index hidden, fts_table hidden, vector hidden, query hidden, k hidden, rrf_k hidden, search_l hidden, "
     "id, score, vector_rank, fts_rank);"
   );
   if( rc != SQLITE_OK ){
@@ -220623,10 +220650,11 @@ static int hybridVectorRanking(
   sqlite3_value *pIdx,
   sqlite3_value *pVector,
   int k,
+  sqlite3_value *pSearchL,   /* NULL for the index's own search_l */
   char **pzErrMsg
 ){
   VectorOutRows rows;
-  sqlite3_value *apSearch[3];
+  sqlite3_value *apSearch[4];
   sqlite3_value *pK;
   int rc, i;
 
@@ -220639,7 +220667,8 @@ static int hybridVectorRanking(
   apSearch[0] = pIdx;
   apSearch[1] = pVector;
   apSearch[2] = pK;
-  rc = vectorIndexSearch(db, 3, apSearch, &rows, &pCur->nReads, &pCur->nWrites, pzErrMsg);
+  apSearch[3] = pSearchL;
+  rc = vectorIndexSearch(db, pSearchL ? 4 : 3, apSearch, &rows, &pCur->nReads, &pCur->nWrites, pzErrMsg);
   sqlite3ValueFree(pK);
   if( rc != SQLITE_OK ){
     vectorOutRowsFree(db, &rows);
@@ -220758,7 +220787,7 @@ static int hybridVtabFilter(
   }
   for(i=0; i<HYBRID_N_REQUIRED; i++){
     if( apArg[i] == NULL ){
-      *pzErrMsg = sqlite3_mprintf("hybrid_top_k: expected arguments (vector_index, fts_table, vector, query, k [, rrf_k])");
+      *pzErrMsg = sqlite3_mprintf("hybrid_top_k: expected arguments (vector_index, fts_table, vector, query, k [, rrf_k [, search_l]])");
       return SQLITE_ERROR;
     }
   }
@@ -220773,7 +220802,7 @@ static int hybridVtabFilter(
   if( hybridIntArg(apArg[HYBRID_COLUMN_K], "k", &k, pzErrMsg) != SQLITE_OK ){
     return SQLITE_ERROR;
   }
-  if( apArg[HYBRID_COLUMN_RRF_K] != NULL ){
+  if( apArg[HYBRID_COLUMN_RRF_K] != NULL && sqlite3_value_type(apArg[HYBRID_COLUMN_RRF_K]) != SQLITE_NULL ){
     int eType = sqlite3_value_type(apArg[HYBRID_COLUMN_RRF_K]);
     rrfK = sqlite3_value_double(apArg[HYBRID_COLUMN_RRF_K]);
     if( (eType != SQLITE_INTEGER && eType != SQLITE_FLOAT) || !(rrfK >= 0) ){
@@ -220786,7 +220815,9 @@ static int hybridVtabFilter(
   }
 
   if( sqlite3_value_type(apArg[HYBRID_COLUMN_VECTOR]) != SQLITE_NULL ){
-    rc = hybridVectorRanking(pCur, db, apArg[HYBRID_COLUMN_IDX], apArg[HYBRID_COLUMN_VECTOR], k, pzErrMsg);
+    rc = hybridVectorRanking(
+      pCur, db, apArg[HYBRID_COLUMN_IDX], apArg[HYBRID_COLUMN_VECTOR], k, apArg[HYBRID_COLUMN_SEARCH_L], pzErrMsg
+    );
   }
   if( rc == SQLITE_OK && sqlite3_value_type(apArg[HYBRID_COLUMN_QUERY]) != SQLITE_NULL ){
     rc = hybridFtsRanking(

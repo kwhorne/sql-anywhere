@@ -982,6 +982,7 @@ int vectorIndexSearch(
   char **pzErrMsg
 ) {
   int type, dims, k, rc, iDb = -1;
+  int searchL = 0;                // 0: the index's own search_l
   double kDouble;
   const char *zIdxFullName;
   char *zIdxDbSNameAlloc = NULL;  // allocated managed schema name string - must be freed if not null 
@@ -996,10 +997,20 @@ int vectorIndexSearch(
   VectorIdxParams idxParams;
   vectorIdxParamsInit(&idxParams, NULL, 0);
 
-  if( argc != 3 ){
-    *pzErrMsg = sqlite3_mprintf("vector index(search): got %d parameters, expected 3", argc);
+  if( argc != 3 && argc != 4 ){
+    *pzErrMsg = sqlite3_mprintf("vector index(search): got %d parameters, expected 3 or 4", argc);
     rc = SQLITE_ERROR;
     goto out;
+  }
+  if( argc == 4 && sqlite3_value_type(argv[3]) != SQLITE_NULL ){
+    // search_l for this search alone: more candidates, better recall, more nodes read
+    sqlite3_int64 searchL64 = sqlite3_value_int64(argv[3]);
+    if( sqlite3_value_type(argv[3]) != SQLITE_INTEGER || searchL64 < 1 || searchL64 > VECTOR_SEARCH_L_MAX ){
+      *pzErrMsg = sqlite3_mprintf("vector index(search): fourth parameter (search_l) must be an integer from 1 to %d", VECTOR_SEARCH_L_MAX);
+      rc = SQLITE_ERROR;
+      goto out;
+    }
+    searchL = (int)searchL64;
   }
   if( detectVectorParameters(argv[1], VECTOR_TYPE_FLOAT32, &type, &dims, pzErrMsg) != 0 ){
     rc = SQLITE_ERROR;
@@ -1094,7 +1105,7 @@ int vectorIndexSearch(
     rc = SQLITE_ERROR;
     goto out;
   }
-  rc = diskAnnSearch(pDiskAnn, pVector, k, &pKey, pRows, pzErrMsg);
+  rc = diskAnnSearch(pDiskAnn, pVector, k, searchL, &pKey, pRows, pzErrMsg);
 out:
   if( pDiskAnn != NULL ){
     *nReads += pDiskAnn->nReads;

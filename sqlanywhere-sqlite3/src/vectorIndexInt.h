@@ -29,7 +29,7 @@ struct DiskAnnIndex {
   int nEdgeVectorSize; /* Vector size of each edge in bytes */
   float pruningAlpha;  /* Alpha parameter for edge pruning during INSERT operation */
   int insertL;         /* Max size of candidate set (L) visited during INSERT operation */
-  int searchL;         /* Max size of candidate set (L) visited during SEARCH operation (can be overriden from query in future) */
+  int searchL;         /* Max size of candidate set (L) visited during SEARCH operation, unless the query gives its own */
 
   int nReads;
   int nWrites;
@@ -137,6 +137,8 @@ typedef u8 MetricType;
 
 #define VECTOR_SEARCH_L_PARAM_ID            9
 #define VECTOR_SEARCH_L_DEFAULT             200
+/* the largest search_l a query may ask for: the candidate set is allocated up front */
+#define VECTOR_SEARCH_L_MAX                 (1 << 20)
 
 #define VECTOR_MAX_NEIGHBORS_PARAM_ID       10
 
@@ -232,7 +234,7 @@ int diskAnnOpenIndex(sqlite3 *, const char *, const char *, const VectorIdxParam
 void diskAnnCloseIndex(DiskAnnIndex *);
 int diskAnnInsert(DiskAnnIndex *, const VectorInRow *, char **);
 int diskAnnDelete(DiskAnnIndex *, const VectorInRow *, char **);
-int diskAnnSearch(DiskAnnIndex *, const Vector *, int, const VectorIdxKey *, VectorOutRows *, char **);
+int diskAnnSearch(DiskAnnIndex *, const Vector *, int, int, const VectorIdxKey *, VectorOutRows *, char **);
 
 typedef struct VectorIdxCursor VectorIdxCursor;
 

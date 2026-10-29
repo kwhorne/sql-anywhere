@@ -178,28 +178,56 @@ Other index knobs: `metric=cosine|l2`, `max_neighbors`, `alpha`, `search_l`,
 keyword search misses paraphrases. Production retrieval systems combine both.
 
 **How.** SQLite's FTS5 full-text index and the vector index live in the same
-database, so you can fuse their rankings with **Reciprocal Rank Fusion (RRF)** —
-`score = Σ 1/(k + rank)` across rankers — in one query:
+database, so one table-valued function fuses their rankings with **Reciprocal
+Rank Fusion (RRF)** — `score = Σ 1/(rrf_k + rank)` across rankers:
+
+```sql
+SELECT d.id, d.title, h.score, h.vector_rank, h.fts_rank
+FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'ownership', 20) h
+JOIN docs d ON d.id = h.id
+ORDER BY h.score DESC;
+```
+
+`hybrid_top_k(vector_index, fts_table, vector, query, k [, rrf_k])`:
+
+- Each ranker contributes its top `k`: the `k` nearest rows of the DiskANN
+  index, and the `k` best FTS5 matches by `rank` (bm25). The `k` best fused
+  scores come back, best first; equal scores fall back to the smaller `id`.
+  For a wider window than you return, pass a larger `k` and add `LIMIT`.
+- `vector_rank` and `fts_rank` are each row's 1-based rank in that ranking, or
+  `NULL` where the row was not in it. Documents strong in **both** surface
+  first.
+- `rrf_k` defaults to 60, the usual constant; raise it to flatten the
+  contribution of top ranks, lower it to sharpen it.
+- A `NULL` vector or a `NULL` query leaves that ranker out, so a search box
+  left empty still returns the semantic ranking.
+- `fts_table` is an FTS5 table, optionally schema-qualified (`main.docs_fts`);
+  its rowids and the vector-indexed table's must be the same integer keys.
+- The vector and the query can come from another table, a fused top-k per row:
+  `FROM questions q, hybrid_top_k('docs_vec', 'docs_fts', q.v, q.terms, 5) h`.
+- It reads what its rankers read: every DiskANN node the vector search visits
+  counts as a row read, as for `vector_top_k` (see [§6](#6-looking-inside-an-index)).
+
+It computes exactly what this query does, which is the place to start when you
+want something it does not offer, such as weighting one ranker:
 
 ```sql
 WITH v AS (                              -- semantic (vector) ranking
   SELECT k.id, ROW_NUMBER() OVER () AS vrank
   FROM vector_top_k('docs_vec', vector32('[1,0,0,0]'), 20) k
 ),
-f AS (                                   -- keyword (FTS5) ranking
-  SELECT docs_fts.rowid AS id, ROW_NUMBER() OVER (ORDER BY rank) AS frank
-  FROM docs_fts WHERE docs_fts MATCH 'ownership'
-)
-SELECT d.id, d.title
-FROM docs d
-LEFT JOIN v ON v.id = d.id
-LEFT JOIN f ON f.id = d.id
-WHERE v.id IS NOT NULL OR f.id IS NOT NULL
-ORDER BY COALESCE(1.0/(60+v.vrank),0) + COALESCE(1.0/(60+f.frank),0) DESC;
+f AS (                                   -- keyword (FTS5) ranking, its top 20
+  SELECT rowid AS id, ROW_NUMBER() OVER (ORDER BY rank) AS frank
+  FROM (SELECT rowid, rank FROM docs_fts WHERE docs_fts MATCH 'ownership'
+        ORDER BY rank LIMIT 20)
+),
+ids AS (SELECT id FROM v UNION SELECT id FROM f)
+SELECT ids.id,
+       COALESCE(1.0/(60+v.vrank),0) + COALESCE(1.0/(60+f.frank),0) AS score
+FROM ids LEFT JOIN v ON v.id = ids.id LEFT JOIN f ON f.id = ids.id
+ORDER BY score DESC, ids.id
+LIMIT 20;
 ```
-
-Documents strong in **both** rankers surface first. `k = 60` is the usual RRF
-constant; raise it to flatten the contribution of top ranks.
 
 Tests: [`sqlanywhere/tests/hybrid_search.rs`](../sqlanywhere/tests/hybrid_search.rs).
 

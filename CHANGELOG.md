@@ -5,6 +5,23 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Hybrid search in one call: `hybrid_top_k`.** `hybrid_top_k(vector_index,
+  fts_table, vector, query, k [, rrf_k])` is a table-valued function that fuses
+  a DiskANN vector ranking and an FTS5 keyword ranking with Reciprocal Rank
+  Fusion: each ranker contributes its top `k`, and the `k` best fused scores
+  come back with `id`, `score`, `vector_rank` and `fts_rank`. It replaces the
+  15-line CTE the docs recommended, and returns exactly what that query does
+  (tested equal, scores included, on a 300-row corpus). `rrf_k` defaults to 60;
+  a `NULL` vector or query leaves that ranker out; the vector and query can
+  come from another table, a fused top-k per row; and the DiskANN nodes it
+  visits count as rows read, as for `vector_top_k`. The `local_rag` example,
+  README and [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#4-hybrid-search-vector--keyword)
+  use it.
+
 ## [0.9.0] - 2026-10-29
 
 Every idea from the review after 0.7.0, built and released. The present can be
@@ -764,6 +781,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
+[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0

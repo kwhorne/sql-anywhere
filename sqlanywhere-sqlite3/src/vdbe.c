@@ -8420,7 +8420,8 @@ case OP_VOpen: {             /* ncycle */
     pCur->uc.pVCur = pVCur;
     pVtab->nRef++;
 #ifndef SQLITE_OMIT_VECTOR
-    if( sqlite3StrICmp(pOp->p4.pVtab->pMod->zName, VECTOR_INDEX_VTAB_NAME) == 0 ){
+    if( sqlite3StrICmp(pOp->p4.pVtab->pMod->zName, VECTOR_INDEX_VTAB_NAME) == 0
+     || sqlite3StrICmp(pOp->p4.pVtab->pMod->zName, VECTOR_HYBRID_VTAB_NAME) == 0 ){
       pCur->isTracked = 1;
     }
 #endif

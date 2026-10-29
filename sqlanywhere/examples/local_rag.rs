@@ -97,21 +97,12 @@ async fn setup() -> Connection {
 async fn retrieve(conn: &Connection, question: &str, k: i64) -> Vec<(String, String)> {
     let query_vec = embed(question, DIMS);
 
+    // Each ranker contributes its top `k * 3`; the fused ranking keeps the best `k`.
     let sql = "
-        WITH v AS (
-            SELECT k.id, ROW_NUMBER() OVER () AS vrank
-            FROM vector_top_k('docs_vec', vector32(?1), ?2) k
-        ),
-        f AS (
-            SELECT docs_fts.rowid AS id, ROW_NUMBER() OVER (ORDER BY rank) AS frank
-            FROM docs_fts WHERE docs_fts MATCH ?3
-        )
         SELECT d.title, d.body
-        FROM docs d
-        LEFT JOIN v ON v.id = d.id
-        LEFT JOIN f ON f.id = d.id
-        WHERE v.id IS NOT NULL OR f.id IS NOT NULL
-        ORDER BY COALESCE(1.0/(60+v.vrank),0) + COALESCE(1.0/(60+f.frank),0) DESC
+        FROM hybrid_top_k('docs_vec', 'docs_fts', vector32(?1), ?3, ?2) h
+        JOIN docs d ON d.id = h.id
+        ORDER BY h.score DESC
         LIMIT ?4";
 
     // Turn the question into an FTS5 OR-query of its words so keyword matching

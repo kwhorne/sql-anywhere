@@ -28,6 +28,10 @@ futures-core = "0.3.29"
 serde = { version = "1.0.196", features = ["derive"] }
 metrics = "0.21.1"
 
+[dev-dependencies]
+rusqlite = { workspace = true }
+tempfile = "3"
+
 [features]
 default = []
 sqlanywhere_linked_statically = []

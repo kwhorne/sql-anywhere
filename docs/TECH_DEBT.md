@@ -72,7 +72,6 @@
 
 | File | Line | Description |
 |------|------|-------------|
-| `wal.rs` | 248 | Computations use host endianness — broken on big-endian |
 | `replicator.rs` | 1100 | Can't rely on change counter in WAL mode |
 | `replicator.rs` | 1171 | Assumes bucket stores only generation data |
 
@@ -176,7 +175,7 @@
 ## Recommended priorities
 
 ### P0 — Safety / correctness
-1. `bottomless/wal.rs:248` — Host-endianness assumption breaks big-endian
+None open.
 
 ### Resolved
 - `local/rows.rs` — `unsafe impl Send/Sync` now carries a `SAFETY` argument (`dc56487`)
@@ -189,6 +188,13 @@
   it opened a database encrypted at rest without the cipher and key, so a
   primary that crashed with frames in its WAL could not start again; it now
   takes the encryption config, tested by crashing an encrypted database.
+- `bottomless/wal.rs` — WAL checksums were summed in the restoring machine's
+  byte order, not the WAL's: a backup restored on a machine of the other byte
+  order failed verification. They are now read in the order the WAL's magic
+  number gives, which each generation's `.meta` records (older `.meta` objects
+  read as before). The sum also cast a `&[u8]` to `&[u32]`, undefined
+  behaviour for an unaligned slice such as a frame header's bytes; it reads
+  words by value now. Tested against a WAL SQLite writes.
 
 ### P1 — Data integrity
 6. `replication/primary/logger.rs:109` — Missing file lock

@@ -71,6 +71,25 @@ pub(crate) trait Conn {
     fn add_update_hook(&self, _cb: Box<dyn Fn(Op, &str, &str, i64) + Send + Sync>) -> Result<()> {
         Err(crate::Error::UpdateHookNotSupported)
     }
+
+    /// Announcements of commits to `tables`, pushed by the server. Only a
+    /// connection to `sqld` has them.
+    async fn listen(&self, _tables: &[String]) -> Result<Box<dyn Listener>> {
+        Err(crate::Error::Misuse(
+            "only a connection to sqld is told about commits; \
+             refresh a local live query after writes or a sync instead"
+                .into(),
+        ))
+    }
+}
+
+/// Commits announced by the server, from [`Conn::listen`].
+#[async_trait::async_trait]
+pub(crate) trait Listener: Send + Sync {
+    /// Wait until the server announces a commit that touched one of the
+    /// tables, or says it dropped announcements. Announcements that arrived
+    /// meanwhile are taken together, as one.
+    async fn changed(&mut self) -> Result<()>;
 }
 
 /// A set of rows returned from `execute_batch`/`execute_transactional_batch`. It is essentially

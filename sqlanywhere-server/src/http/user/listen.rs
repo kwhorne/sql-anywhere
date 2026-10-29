@@ -20,6 +20,7 @@ use std::convert::Infallible;
 use std::pin::Pin;
 use std::time::Duration;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tokio_stream::wrappers::BroadcastStream;
 
 use super::db_factory::namespace_from_headers;
 use super::AppState;
@@ -92,14 +93,18 @@ pub(super) async fn handle_listen(
         );
         return Ok(ListenResponse::Redirect(Redirect::temporary(&url)));
     }
+    // Writes reach a replica as frames, past the hooks that announce them: a
+    // listener here would never hear a commit.
+    if state.namespaces.db_kind().is_replica() {
+        return Err(Error::NotAPrimary);
+    }
 
     let stream = sse_stream(
         state.namespaces.clone(),
         namespace,
         query.table.clone(),
         query.action.clone(),
-    )
-    .await;
+    );
 
     Ok(ListenResponse::SSE(
         Sse::new(stream).keep_alive(
@@ -110,38 +115,40 @@ pub(super) async fn handle_listen(
     ))
 }
 
-async fn sse_stream(
+fn sse_stream(
     store: NamespaceStore,
     namespace: NamespaceName,
     table: String,
     actions: Option<Vec<Action>>,
 ) -> SseStream {
     Box::pin(
-        listen_stream(store, namespace, table, actions)
-            .await
-            .map(|result| {
-                Ok(match result {
-                    Ok(AggregatorEvent::Error(msg)) => Event::default().event("error").data(msg),
-                    Ok(AggregatorEvent::Changes(msg)) => {
-                        Event::default().event("changes").json_data(msg).unwrap()
-                    }
-                    Err(e) => Event::default().event("error").data(e.to_string()),
-                })
-            }),
+        listen_stream(store, namespace, table, actions).map(|result| {
+            Ok(match result {
+                Ok(AggregatorEvent::Error(msg)) => Event::default().event("error").data(msg),
+                Ok(AggregatorEvent::Changes(msg)) => {
+                    Event::default().event("changes").json_data(msg).unwrap()
+                }
+                Err(e) => Event::default().event("error").data(e.to_string()),
+            })
+        }),
     )
 }
 
-async fn listen_stream(
+fn listen_stream(
     store: NamespaceStore,
     namespace: NamespaceName,
     table: String,
     actions: Option<Vec<Action>>,
 ) -> impl Stream<Item = crate::Result<AggregatorEvent>> {
+    // Subscribe now, before the response goes out, not when the body is first
+    // polled: a client that has the response must not miss a commit that
+    // follows it.
+    let mut listening = Listening {
+        stream: store.subscribe(namespace.clone(), table.clone()),
+        _sub: Subscription::new(store, namespace, table),
+    };
     async_stream::try_stream! {
-        let _sub = Subscription::new(store.clone(), namespace.clone(), table.clone());
-        let mut stream = store.subscribe(namespace.clone(), table.clone());
-
-        while let Some(item) = stream.next().await {
+        while let Some(item) = listening.stream.next().await {
             match item {
                 Ok(msg) => if filter_actions(&msg, &actions) {
                     LISTEN_EVENTS_SENT.increment(1);
@@ -168,6 +175,13 @@ fn filter_actions(msg: &BroadcastMsg, actions: &Option<Vec<Action>>) -> bool {
             count > 0
         })
     })
+}
+
+/// A subscription and its receiver. Fields drop in order, so the receiver is
+/// gone by the time the subscription asks whether anyone still listens.
+struct Listening {
+    stream: BroadcastStream<BroadcastMsg>,
+    _sub: Subscription,
 }
 
 struct Subscription {

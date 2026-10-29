@@ -24,6 +24,8 @@ where
     cursor_url: Arc<str>,
     /// Authentication token.
     auth: Arc<str>,
+    /// The server's URL, as given, with its scheme coerced.
+    base_url: Arc<str>,
 }
 
 impl<T> HttpConnection<T>
@@ -34,6 +36,7 @@ where
         // The `sqlanywhere://` protocol is an alias for `https://`.
         let base_url = coerce_url_scheme(url);
         let (pipeline_url, cursor_url) = parse_hrana_urls(&base_url);
+        let base_url: Arc<str> = Arc::from(base_url);
         let auth: Arc<str> = Arc::from(format!("Bearer {token}"));
         let conn_stream = HranaStream::open(
             inner.clone(),
@@ -47,7 +50,20 @@ where
             cursor_url,
             conn_stream,
             auth,
+            base_url,
         }))
+    }
+
+    pub(crate) fn base_url(&self) -> &str {
+        &self.0.base_url
+    }
+
+    pub(crate) fn auth(&self) -> &Arc<str> {
+        &self.0.auth
+    }
+
+    pub(crate) fn sender(&self) -> &T {
+        &self.0.inner
     }
 
     pub fn affected_row_count(&self) -> u64 {

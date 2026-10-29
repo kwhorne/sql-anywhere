@@ -13,12 +13,15 @@ answer is to re-run every query on a timer and redraw everything. A
   learns from one small local query, and, once its tables are tracked, only
   when one of *its* tables was written;
 - it returns a `Diff` of the rows inserted, updated and deleted, or `None`
-  when the result is the same, so the UI touches only the rows that moved.
+  when the result is the same, so the UI touches only the rows that moved;
+- over a connection to `sqld`, it can [wait](#live-queries-over-sqld) for the
+  server to announce a commit instead of asking.
 
 Verified: [`sqlanywhere/tests/live.rs`](../sqlanywhere/tests/live.rs), and
 against a real primary and embedded replica in
 `sqlanywhere-server/tests/embedded_replica` (`live_query_follows_replica_sync`,
-`a_tracked_live_query_on_a_replica`).
+`a_tracked_live_query_on_a_replica`); waiting on `sqld` in
+`sqlanywhere-server/tests/standalone/live.rs`.
 
 ## How
 
@@ -46,6 +49,7 @@ if let Some(diff) = open.refresh().await? {
 | `is_stale()` | Whether anything was written since the last refresh. One small query; the live one is not run. |
 | `refresh()` | Re-run if stale, and return the `Diff`, or `None` if nothing changed. |
 | `watched_tables()` | The tables whose writes make it stale, or `None` when any write to the file does. |
+| `wait()` | On a connection to `sqld`: wait until a commit changes the result, and return the `Diff` ([below](#live-queries-over-sqld)). |
 | `live::track(conn, table)`, `live::untrack(conn, table)` | Make a table's writes distinguishable from other tables' (below). |
 
 Calling `refresh` on a timer is cheap: when nothing was written it is one
@@ -101,6 +105,58 @@ embedded replica, `track` is DDL and goes to the primary like any write; the
 tables a live query reads are worked out from the replica's own file, so
 creating one does not need the primary.
 
+## Live queries over `sqld`
+
+A client with no database file of its own, connected to `sqld` over HTTP, can
+keep a result current without polling. `wait` holds until the server announces
+a commit that changes the result, and returns the diff:
+
+```rust
+let db = Database::open_remote("https://db.example.com", token)?;
+let conn = db.connect()?;
+live::track(&conn, "todo").await?;   // once, like a migration
+
+let mut open = LiveQuery::new(&conn, "SELECT id, title FROM todo WHERE done = 0", ())
+    .await?
+    .keyed_by(&[0]);
+loop {
+    let diff = open.wait().await?;   // another client's commit, pushed
+    apply(&diff);
+}
+```
+
+`sqld` announces commits as server-sent events on `GET /beta/listen?table=…`,
+one event per commit to the table, with counts of rows inserted, updated and
+deleted. A live query listens to `sqlanywhere_live_tables`, where the version
+triggers of its tracked tables write, so one stream covers however many
+tables it reads. Each announcement is followed by a `refresh`: the versions
+say whether one of *its* tables moved, and only then does the query re-run.
+Commits that do not change the result are waited through.
+
+- **Every table the query reads must be tracked.** Announcements come from
+  SQLite's update hook, which says nothing about `WITHOUT ROWID` tables; the
+  version triggers fire for those too, on a table it does report. `wait` on a
+  query that reads an untracked table fails at once and says so.
+- **Nothing is lost between results.** The server subscribes before it answers
+  the request, and the first `wait` refreshes once it is listening, so a
+  commit made after the last result and before listening is returned at once.
+  Dropping a `wait` (a timeout) keeps the subscription; the next one goes on.
+- **An announcement follows its commit.** The server sends it once the
+  statement that committed has finished, not from the commit hook, which runs
+  before the commit is done: a client that reads straight away sees the
+  change.
+- **Connect to the primary.** Commits reach a replica `sqld` as frames, past
+  the hooks that announce them, so a replica turns listeners away: it redirects
+  them to its primary when it knows the primary's URL, and refuses them (`database is
+  not a primary`) when it does not. `wait` reports either at once rather than
+  waiting for announcements that would never come.
+- **A dropped stream is an error.** If the server goes away, `wait` returns
+  the error; the next `wait` listens again and catches up.
+
+On a local database or an embedded replica `wait` fails without waiting: there
+is no server to announce commits, and `refresh` after writes or a sync is the
+way to go.
+
 ## Where changes come from
 
 | Change | How it is noticed |
@@ -138,8 +194,10 @@ deletion.
   but the cost of a write is one re-run per live query. Tracking narrows this
   to tables, not rows: a write to a tracked table re-runs every live query that
   reads it, whether or not the row is in its result.
-- Live queries need the database file in this process: a local database or an
-  embedded replica. A purely remote connection has nothing to watch. Pushing
-  diffs from `sqld` to remote clients over Hrana is not built.
+- On a remote connection, a live query needs its tables tracked: the file's
+  own counters belong to the server's connection, not the client's. The
+  server does not compute diffs: each client re-runs its query after an
+  announcement that concerns it, so many clients on one busy table mean many
+  re-runs.
 - A diff is computed from two full results, so it suits the result sizes a UI
   shows, not a million-row export.

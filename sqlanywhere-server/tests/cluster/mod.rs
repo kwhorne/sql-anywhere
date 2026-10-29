@@ -340,3 +340,41 @@ fn replicate_from_shared_schema() {
 
     sim.run().unwrap();
 }
+
+/// A replica hears no commits: they reach it as frames, past the hooks that
+/// announce them. Waiting on one must fail, not wait forever.
+#[test]
+fn live_query_wait_on_a_replica_is_refused() {
+    let mut sim = Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+    make_cluster(&mut sim, 1, true);
+
+    sim.client("client", async {
+        let primary =
+            Database::open_remote_with_connector("http://primary:8080", "", TurmoilConnector)?
+                .connect()?;
+        primary.execute("CREATE TABLE t (x)", ()).await?;
+        sqlanywhere::live::track(&primary, "t").await?;
+
+        let replica =
+            Database::open_remote_with_connector("http://replica0:8080", "", TurmoilConnector)?
+                .connect()?;
+        // Let the schema reach the replica.
+        let mut live = loop {
+            match sqlanywhere::live::LiveQuery::new(&replica, "SELECT x FROM t", ()).await {
+                Ok(live) if live.watched_tables().is_some() => break live,
+                _ => tokio::time::sleep(Duration::from_millis(100)).await,
+            }
+        };
+        let err = tokio::time::timeout(Duration::from_secs(30), live.wait())
+            .await
+            .expect("wait on a replica must not hang")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not a primary"), "{err}");
+        Ok(())
+    });
+
+    sim.run().unwrap();
+}

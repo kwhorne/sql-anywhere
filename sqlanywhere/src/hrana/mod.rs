@@ -4,6 +4,7 @@ pub mod connection;
 
 cfg_remote! {
     pub mod hyper;
+    mod listen;
 }
 
 mod cursor;

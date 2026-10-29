@@ -41,8 +41,10 @@
 //! # }
 //! ```
 //!
-//! Live queries need the database file in this process: a local database or an
-//! embedded replica. A purely remote connection has no file to watch.
+//! The counters above belong to a database file in this process: a local
+//! database or an embedded replica. A connection to `sqld` uses the versions
+//! of tracked tables instead (below), and can [`wait`](LiveQuery::wait) for
+//! the server to push the next change.
 //!
 //! # Watching only the tables a query reads
 //!
@@ -57,9 +59,19 @@
 //! versions are ordinary rows written in the same transaction as the change,
 //! so they reach other connections and embedded replicas exactly when the
 //! change does. [`LiveQuery::watched_tables`] says which mode a query is in.
+//!
+//! # Live queries over `sqld`
+//!
+//! On a connection to `sqld`, [`LiveQuery::wait`] waits until the server
+//! announces a commit that changes the result, and returns its diff: no
+//! polling. The server pushes an event for each commit to a tracked table
+//! (`GET /beta/listen`, server-sent events), and the live query refreshes on
+//! each, re-running only when one of its own tables moved. Every table the
+//! query reads must be tracked; see `docs/LIVE_QUERIES.md`.
 
 use std::collections::HashMap;
 
+use crate::connection::Listener;
 use crate::params::{IntoParams, Params};
 use crate::{params, Connection, Error, Result, Value};
 
@@ -159,6 +171,9 @@ pub struct LiveQuery {
     rows: Vec<Vec<Value>>,
     watch: Watch,
     seen: Seen,
+    /// What [`wait`](LiveQuery::wait) listens to, and the server's
+    /// announcements for it.
+    listening: Option<(Vec<String>, Box<dyn Listener>)>,
 }
 
 /// What a live query compares to decide it is stale.
@@ -226,6 +241,7 @@ impl LiveQuery {
                 schema_version: 0,
                 changes: Changes::Tables { sum: 0, count: 0 },
             },
+            listening: None,
         };
         live.watch = live.resolve_watch().await?;
         live.seen = live.counters().await?;
@@ -300,6 +316,61 @@ impl LiveQuery {
         self.columns = columns;
         self.rows = rows;
         Ok((!diff.is_empty()).then_some(diff))
+    }
+
+    /// Wait until a commit changes the result, and return how. `sqld` pushes
+    /// an announcement for every commit to a [`track`]ed table; each one is
+    /// followed by a [`refresh`](Self::refresh), which re-runs the query only
+    /// when a table it reads moved, and the first that finds the result
+    /// changed is returned. Commits that do not change it are waited through.
+    ///
+    /// It needs a connection to `sqld`, which announces the commits, and every
+    /// table the query reads tracked (see
+    /// [Live queries over `sqld`](self#live-queries-over-sqld)); otherwise it
+    /// fails without waiting. It listens from its first call: a commit made
+    /// before it, since the last refresh, is returned at once. Cancelling it
+    /// (dropping the future, as a timeout does) is safe, and the next call
+    /// goes on listening.
+    pub async fn wait(&mut self) -> Result<Diff> {
+        loop {
+            let tables = self.listen_to()?;
+            if !matches!(&self.listening, Some((on, _)) if *on == tables) {
+                self.listening = None;
+                let listener = self.conn.conn.listen(&tables).await?;
+                self.listening = Some((tables, listener));
+                // Nothing committed between the last refresh and the
+                // subscription was announced: look for it now.
+                if let Some(diff) = self.refresh().await? {
+                    return Ok(diff);
+                }
+                // The refresh may have found a new schema, and new tables.
+                continue;
+            }
+            let (_, listener) = self.listening.as_mut().expect("listening");
+            if let Err(e) = listener.changed().await {
+                self.listening = None;
+                return Err(e);
+            }
+            if let Some(diff) = self.refresh().await? {
+                return Ok(diff);
+            }
+        }
+    }
+
+    /// The table whose commits [`wait`](Self::wait) listens for: the
+    /// versions of the tracked tables, one stream however many tables the
+    /// query reads. Not the tables themselves: `sqld` announces what SQLite's
+    /// update hook reports, which leaves out writes to `WITHOUT ROWID` tables.
+    /// The version triggers fire for those too, on a table it does report.
+    fn listen_to(&self) -> Result<Vec<String>> {
+        match &self.watch {
+            Watch::Tables(_) => Ok(vec![TRACKED.to_string()]),
+            Watch::File => Err(Error::Misuse(
+                "wait needs every table the live query reads tracked: \
+                 call live::track for each"
+                    .into(),
+            )),
+        }
     }
 
     async fn counters(&self) -> Result<Seen> {

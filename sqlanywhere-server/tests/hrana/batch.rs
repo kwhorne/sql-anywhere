@@ -581,3 +581,49 @@ where
 
     sim.run().unwrap();
 }
+
+/// `hybrid_top_k` reads what its two rankers read: every DiskANN node its vector
+/// search visits counts as a row read, as it does for `vector_top_k` alone.
+#[test]
+fn hybrid_top_k_counts_rows_read() {
+    let mut sim = turmoil::Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+    sim.host("primary", super::make_standalone_server);
+    sim.client("client", async {
+        let req = serde_json::json!({
+            "requests": [
+                {"type": "execute", "stmt": { "sql": "CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT, emb FLOAT32(2))" }},
+                {"type": "execute", "stmt": { "sql": "CREATE INDEX docs_vec ON docs(sqlanywhere_vector_idx(emb))" }},
+                {"type": "execute", "stmt": { "sql": "CREATE VIRTUAL TABLE docs_fts USING fts5(body)" }},
+                {"type": "execute", "stmt": { "sql": "INSERT INTO docs VALUES \
+                    (1, 'rust ownership', vector32('[1,0]')), (2, 'kitchen knives', vector32('[0,1]')), \
+                    (3, 'async ownership', vector32('[0.9,0.1]')), (4, 'garden gloves', vector32('[0.5,0.5]'))" }},
+                {"type": "execute", "stmt": { "sql": "INSERT INTO docs_fts(rowid, body) SELECT id, body FROM docs" }},
+                {"type": "execute", "stmt": { "sql": "SELECT id FROM vector_top_k('docs_vec', vector32('[1,0]'), 3)" }},
+                {"type": "execute", "stmt": { "sql": "SELECT rowid FROM docs_fts WHERE docs_fts MATCH 'ownership' ORDER BY rank LIMIT 3" }},
+                {"type": "execute", "stmt": { "sql": "SELECT id FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0]'), 'ownership', 3)" }}
+            ]
+        });
+        let resp = Client::new()
+            .post("http://primary:8080/v2/pipeline", req)
+            .await
+            .unwrap();
+        let json = resp.json_value().await.unwrap();
+        let results = json["results"].as_array().unwrap();
+        for result in results {
+            assert_eq!(result["type"], "ok", "{result}");
+        }
+        let rows_read = |i: usize| results[i]["response"]["result"]["rows_read"].as_u64().unwrap();
+        let rows = |i: usize| results[i]["response"]["result"]["rows"].as_array().unwrap().len();
+
+        let (vector, keyword, hybrid) = (rows_read(5), rows_read(6), rows_read(7));
+        assert!(vector > 0, "the vector search visits nodes");
+        assert_eq!(hybrid, vector + keyword);
+        assert_eq!(rows(7), 3);
+
+        Ok(())
+    });
+
+    sim.run().unwrap();
+}

@@ -237,6 +237,7 @@ int diskAnnSearch(DiskAnnIndex *, const Vector *, int, const VectorIdxKey *, Vec
 typedef struct VectorIdxCursor VectorIdxCursor;
 
 #define VECTOR_INDEX_VTAB_NAME         "vector_top_k"
+#define VECTOR_HYBRID_VTAB_NAME        "hybrid_top_k"
 #define VECTOR_INDEX_GLOBAL_META_TABLE "sqlanywhere_vector_meta_shadow"
 #define VECTOR_INDEX_MARKER_FUNCTION   "sqlanywhere_vector_idx"
 

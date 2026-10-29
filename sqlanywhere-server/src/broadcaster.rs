@@ -29,6 +29,9 @@ fn is_zero(num: &u64) -> bool {
 #[derive(Debug, Default)]
 pub struct BroadcasterInner {
     state: Mutex<BTreeMap<String, BroadcastMsg>>,
+    /// Changes whose commit has begun: the commit hook runs before the commit
+    /// is done, so they are sent by `flush` once the statement has finished.
+    committed: Mutex<BTreeMap<String, BroadcastMsg>>,
     senders: Mutex<HashMap<String, broadcast::Sender<BroadcastMsg>>>,
 }
 
@@ -60,12 +63,31 @@ impl Broadcaster {
         }
     }
 
+    /// Called from the commit hook, before the commit is done: a listener told
+    /// now could read the database before the commit lands. The changes wait
+    /// for [`flush`](Self::flush).
     pub fn commit(&self) {
-        let senders = self.inner.senders.lock();
-        let mut state = self.inner.state.lock();
-        let state = mem::take(&mut *state);
+        let state = mem::take(&mut *self.inner.state.lock());
+        let mut committed = self.inner.committed.lock();
+        for (table, entry) in state {
+            let pending = committed.entry(table).or_default();
+            pending.unknown += entry.unknown;
+            pending.delete += entry.delete;
+            pending.insert += entry.insert;
+            pending.update += entry.update;
+        }
+    }
 
-        state.into_iter().for_each(|(table, entry)| {
+    /// Send the committed changes, once the statement that committed them has
+    /// finished. A commit that failed after its hook is sent too: a listener
+    /// looks again and finds nothing new, which is better than missing one.
+    pub fn flush(&self) {
+        let committed = mem::take(&mut *self.inner.committed.lock());
+        if committed.is_empty() {
+            return;
+        }
+        let senders = self.inner.senders.lock();
+        committed.into_iter().for_each(|(table, entry)| {
             if let Some(sender) = senders.get(&table) {
                 let _ = sender.send(entry);
             }
@@ -100,5 +122,35 @@ impl Broadcaster {
             }
         }
         return true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::hooks::Action;
+    use tokio_stream::StreamExt;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn changes_are_sent_when_flushed_not_when_committed() {
+        let broadcaster = Broadcaster::default();
+        let mut todo = broadcaster.subscribe("todo".into());
+
+        broadcaster.notify("todo", Action::SQLITE_INSERT);
+        broadcaster.notify("todo", Action::SQLITE_INSERT);
+        // The commit hook: the commit is not done yet.
+        broadcaster.commit();
+        assert!(futures::FutureExt::now_or_never(todo.next()).is_none());
+
+        // A rolled-back transaction leaves nothing behind.
+        broadcaster.notify("todo", Action::SQLITE_DELETE);
+        broadcaster.rollback();
+
+        broadcaster.flush();
+        let msg = todo.next().await.unwrap().unwrap();
+        assert_eq!((msg.insert, msg.delete), (2, 0));
+        broadcaster.flush();
+        assert!(futures::FutureExt::now_or_never(todo.next()).is_none());
     }
 }

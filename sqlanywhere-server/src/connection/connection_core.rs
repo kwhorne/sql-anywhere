@@ -7,6 +7,7 @@ use metrics::histogram;
 use parking_lot::Mutex;
 use sqlanywhere_sys::wal::{Wal, WalManager};
 
+use crate::broadcaster::Broadcaster;
 use crate::connection::legacy::open_conn_active_checkpoint;
 use crate::error::Error;
 use crate::metrics::{PROGRAM_EXEC_COUNT, QUERY_CANCELED, VACUUM_COUNT, WAL_CHECKPOINT_COUNT};
@@ -36,6 +37,8 @@ pub(super) struct CoreConnection<W> {
     forced_rollback: bool,
     broadcaster: BroadcasterHandle,
     hooked: bool,
+    /// The broadcaster the hooks were last installed with.
+    hooked_broadcaster: Option<Broadcaster>,
     canceled: Arc<AtomicBool>,
 }
 
@@ -111,6 +114,7 @@ impl<W: Wal + Send + 'static> CoreConnection<W> {
             forced_rollback: false,
             broadcaster,
             hooked: false,
+            hooked_broadcaster: None,
             canceled,
             get_current_frame_no,
         };
@@ -249,7 +253,11 @@ impl<W: Wal + Send + 'static> CoreConnection<W> {
                 continue;
             }
 
-            vm.step(&conn.raw())?;
+            let stepped = vm.step(&conn.raw());
+            // A COMMIT, or a write outside a transaction, is done once its
+            // statement has run: only now may listeners be told.
+            conn.flush_broadcast();
+            stepped?;
         }
 
         {
@@ -347,12 +355,19 @@ impl<W: Wal + Send + 'static> CoreConnection<W> {
         self.conn.is_autocommit()
     }
 
+    fn flush_broadcast(&self) {
+        if let Some(broadcaster) = &self.hooked_broadcaster {
+            broadcaster.flush();
+        }
+    }
+
     fn update_hooks(&mut self) {
         let (update_fn, commit_fn, rollback_fn) = if self.hooked {
             if self.broadcaster.active() {
                 return;
             }
             self.hooked = false;
+            self.hooked_broadcaster = None;
             (None, None, None)
         } else {
             let Some(broadcaster) = self.broadcaster.get() else {
@@ -370,8 +385,9 @@ impl<W: Wal + Send + 'static> CoreConnection<W> {
                 false // allow commit to go through
             });
 
-            let rollback = broadcaster;
+            let rollback = broadcaster.clone();
             let rollback_fn = Some(move || rollback.rollback());
+            self.hooked_broadcaster = Some(broadcaster);
             (update_fn, commit_fn, rollback_fn)
         };
 
@@ -480,6 +496,7 @@ mod test {
             forced_rollback: false,
             broadcaster: Default::default(),
             hooked: false,
+            hooked_broadcaster: None,
             canceled: Arc::new(false.into()),
             get_current_frame_no: Arc::new(|| None),
         };

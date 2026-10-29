@@ -125,8 +125,12 @@ engine wherever possible.
       (`sqlanywhere/tests/live.rs`, and against a real primary in
       `embedded_replica::live_query_follows_replica_sync`). With `live::track`
       a live query re-runs only for writes to the tables it reads, found from
-      its own `EXPLAIN`, on replicas too. Next: push diffs from `sqld` to
-      remote clients over Hrana.
+      its own `EXPLAIN`, on replicas too. Over a connection to `sqld`,
+      `LiveQuery::wait` waits for the server to announce a commit to a tracked
+      table (`/beta/listen`, server-sent events) and returns the diff it
+      made: no polling (`sqlanywhere-server/tests/standalone/live.rs`). Next:
+      the same over a Hrana WebSocket, and the server computing one diff for
+      many clients.
 - [ ] **Selective / partial replication** — replicate only rows matching a
       predicate (per-user / per-tenant) instead of the whole database. First
       step shipped: partial branches, where a `Lens` (a relational or

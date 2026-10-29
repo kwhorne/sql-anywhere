@@ -105,6 +105,42 @@ impl HttpSender {
 
         Ok(body)
     }
+
+    /// A GET whose response body is read as it arrives, for a stream of
+    /// server-sent events.
+    pub(crate) async fn get_stream(&self, url: &str, auth: &str) -> Result<ByteStream> {
+        let mut req_builder = hyper::Request::get(url)
+            .header(AUTHORIZATION, auth)
+            .header("x-sqlanywhere-client-version", self.version.clone());
+        if let Some(namespace) = &self.namespace {
+            req_builder = req_builder.header("x-namespace", namespace.clone());
+        }
+        let req = req_builder
+            .body(hyper::Body::empty())
+            .map_err(|err| HranaError::Http(format!("{:?}", err)))?;
+
+        let resp = self.inner.request(req).await.map_err(HranaError::from)?;
+        let status = resp.status();
+        if status.is_redirection() {
+            // A replica sends listeners to its primary, which may not be
+            // reachable at the address it knows itself by.
+            return Err(HranaError::Api(format!(
+                "status={status}: {url} is served by the primary; connect to it to listen"
+            )));
+        }
+        if status != StatusCode::OK {
+            let body = hyper::body::to_bytes(resp.into_body())
+                .await
+                .map_err(HranaError::from)?;
+            let body = String::from_utf8_lossy(&body).into_owned();
+            return Err(HranaError::Api(format!("status={}, body={}", status, body)));
+        }
+        Ok(Box::new(
+            resp.into_body()
+                .into_stream()
+                .map_err(|e| std::io::Error::new(ErrorKind::Other, e)),
+        ))
+    }
 }
 
 impl HttpSend for HttpSender {
@@ -230,6 +266,10 @@ impl Conn for HttpConnection<HttpSender> {
 
     async fn reset(&self) {
         self.current_stream().reset().await;
+    }
+
+    async fn listen(&self, tables: &[String]) -> crate::Result<Box<dyn crate::connection::Listener>> {
+        super::listen::listen(self, tables).await
     }
 }
 

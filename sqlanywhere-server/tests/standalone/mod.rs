@@ -20,6 +20,7 @@ use common::net::{init_tracing, TestServer, TurmoilConnector};
 mod admin;
 mod attach;
 mod auth;
+mod live;
 
 async fn make_standalone_server() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();

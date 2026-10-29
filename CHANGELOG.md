@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Live queries over `sqld`: `LiveQuery::wait`.** A client connected to
+  `sqld` over HTTP, with no database file of its own, waits for the server to
+  announce a commit that changes its result and gets the diff, without
+  polling. `sqld` pushes an event per commit on `GET /beta/listen` (server-sent
+  events); a live query listens to `sqlanywhere_live_tables`, which the version
+  triggers of its tracked tables write, so one stream covers all its tables and
+  `WITHOUT ROWID` tables are seen too. Each announcement is followed by a
+  refresh, which re-runs the query only when one of its own tables moved, and
+  commits that leave the result alone are waited through. The first `wait`
+  catches up on commits made before it listened; a dropped `wait` keeps the
+  subscription. Every table the query reads must be `live::track`ed, and the
+  connection must reach the primary. See
+  [docs/LIVE_QUERIES.md](docs/LIVE_QUERIES.md#live-queries-over-sqld).
+
 - **Hybrid search in one call: `hybrid_top_k`.** `hybrid_top_k(vector_index,
   fts_table, vector, query, k [, rrf_k])` is a table-valued function that fuses
   a DiskANN vector ranking and an FTS5 keyword ranking with Reciprocal Rank
@@ -21,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   visits count as rows read, as for `vector_top_k`. The `local_rag` example,
   README and [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#4-hybrid-search-vector--keyword)
   use it.
+
+### Fixed
+
+- **`/beta/listen` announced commits before they were done, and could miss the
+  first one.** The announcement went out from SQLite's commit hook, which runs
+  before the commit completes, so a listener that read straight away could
+  find nothing new; it is now sent once the committing statement has finished.
+  And the subscription was made when the response body was first polled, after
+  the response had gone out; it is now made before. A replica without a
+  primary URL accepted listeners it could never tell about a commit (writes
+  reach it as frames, past the hooks); it now refuses them with `database is
+  not a primary`.
 
 ## [0.9.0] - 2026-10-29
 

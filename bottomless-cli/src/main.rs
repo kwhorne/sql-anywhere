@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 mod replicator_extras;
 use crate::replicator_extras::detect_db;
+use bottomless::replicator::Metadata;
 use replicator_extras::Replicator;
 
 #[derive(Debug, Parser)]
@@ -176,30 +177,39 @@ async fn run() -> Result<()> {
         };
         println!("trying to restore from {}", from_dir.display());
         let mut db_file = tokio::fs::File::create(database).await?;
-        let (page_size, checksum) = match Replicator::get_local_metadata(&from_dir).await {
-            Ok(Some((page_size, checksum))) => (page_size, checksum),
+        // Without metadata the checksum chain cannot start, and the first
+        // frame's check fails; the restore carries on unchecked, as it did.
+        let unknown = Metadata {
+            page_size: 4096,
+            checksum: (0, 0),
+            big_endian: cfg!(target_endian = "big"),
+        };
+        let meta = match Replicator::get_local_metadata(&from_dir).await {
+            Ok(Some(meta)) => meta,
             Ok(None) => {
                 println!("No local metadata found, continuing anyway");
-                (4096, (0, 0))
+                unknown
             }
             Err(e) => {
                 println!("Failed to get local metadata: {e}, continuing anyway");
-                (4096, (0, 0))
+                unknown
             }
         };
         println!(
-            "Local metadata: page_size={page_size}, checksum={:X}-{:X}",
-            checksum.0, checksum.1
+            "Local metadata: page_size={}, checksum={:X}-{:X}, {}",
+            meta.page_size,
+            meta.checksum.0,
+            meta.checksum.1,
+            if meta.big_endian {
+                "big-endian"
+            } else {
+                "little-endian"
+            }
         );
         Replicator::restore_from_local_snapshot(&from_dir, &mut db_file).await?;
         println!("Restored local snapshot to {}", database);
-        let applied_frames = Replicator::apply_wal_from_local_generation(
-            &from_dir,
-            &mut db_file,
-            page_size,
-            checksum,
-        )
-        .await?;
+        let applied_frames =
+            Replicator::apply_wal_from_local_generation(&from_dir, &mut db_file, meta).await?;
         println!("Applied {applied_frames} frames from local generation");
         if let Err(e) = verify_db(&PathBuf::from(database)) {
             println!("Verification failed: {e}");

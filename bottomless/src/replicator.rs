@@ -1042,7 +1042,8 @@ impl Replicator {
             }
         };
 
-        self.store_metadata(wal.page_size(), wal.checksum()).await?;
+        self.store_metadata(wal.page_size(), wal.checksum(), wal.big_endian_checksums())
+            .await?;
 
         let frame_count = wal.frame_count().await;
         tracing::trace!("Local WAL pages: {}", frame_count);
@@ -1414,8 +1415,8 @@ impl Replicator {
 
         let mut applied_wal_frame = false;
         while let Some(gen) = restore_stack.pop() {
-            if let Some((page_size, checksum)) = self.get_metadata(&gen).await? {
-                self.set_page_size(page_size as usize)?;
+            if let Some(meta) = self.get_metadata(&gen).await? {
+                self.set_page_size(meta.page_size as usize)?;
                 let last_frame = if restore_stack.is_empty() {
                     // we're at the last generation to restore from, it may still being written to
                     // so we constraint the restore to a frame checked at the beginning of the
@@ -1424,15 +1425,8 @@ impl Replicator {
                 } else {
                     None
                 };
-                self.restore_wal(
-                    &gen,
-                    page_size as usize,
-                    last_frame,
-                    checksum,
-                    timestamp,
-                    restore_path,
-                )
-                .await?;
+                self.restore_wal(&gen, meta, last_frame, timestamp, restore_path)
+                    .await?;
                 applied_wal_frame = true;
             } else {
                 tracing::info!(".meta object not found, skipping WAL restore.");
@@ -1575,12 +1569,13 @@ impl Replicator {
     async fn restore_wal(
         &self,
         generation: &Uuid,
-        page_size: usize,
+        meta: Metadata,
         last_consistent_frame: Option<u32>,
-        mut checksum: (u32, u32),
         utc_time: Option<NaiveDateTime>,
         db_path: &Path,
     ) -> Result<bool> {
+        let page_size = meta.page_size as usize;
+        let mut checksum = meta.checksum;
         let encryption_config = self.encryption_config.clone();
         let mut injector = sqlanywhere_replication::injector::SqliteInjector::new(
             db_path.to_path_buf(),
@@ -1590,12 +1585,7 @@ impl Replicator {
         )
         .await?;
         let prefix = format!("{}-{}/", self.db_name, generation);
-        let mut page_buf = {
-            let mut v = Vec::with_capacity(page_size);
-            v.spare_capacity_mut();
-            unsafe { v.set_len(page_size) };
-            v
-        };
+        let mut page_buf = vec![0u8; page_size];
         let mut next_marker = None;
         let mut applied_wal_frame = false;
         let mut last_injected_frame_no = 0;
@@ -1673,7 +1663,7 @@ impl Replicator {
                     last_injected_frame_no = reader.next_frame_no();
                     reader.next_page(&mut page_buf).await?;
                     if self.verify_crc {
-                        checksum = frame.verify(checksum, &page_buf)?;
+                        checksum = frame.verify(checksum, &page_buf, meta.big_endian)?;
                     }
                     let (crc1, crc2) = frame.crc();
                     let checksum = (crc1 as u64) << 32 | crc2 as u64;
@@ -1923,7 +1913,12 @@ impl Replicator {
         None
     }
 
-    async fn store_metadata(&self, page_size: u32, checksum: (u32, u32)) -> Result<()> {
+    async fn store_metadata(
+        &self,
+        page_size: u32,
+        checksum: (u32, u32),
+        big_endian: bool,
+    ) -> Result<()> {
         let generation = self.generation()?;
         let key = format!("{}-{}/.meta", self.db_name, generation);
         tracing::debug!(
@@ -1933,10 +1928,12 @@ impl Replicator {
             checksum.0,
             checksum.1,
         );
-        let mut body = Vec::with_capacity(12);
-        body.extend_from_slice(page_size.to_be_bytes().as_slice());
-        body.extend_from_slice(checksum.0.to_be_bytes().as_slice());
-        body.extend_from_slice(checksum.1.to_be_bytes().as_slice());
+        let body = Metadata {
+            page_size,
+            checksum,
+            big_endian,
+        }
+        .encode();
         let _ = self
             .client
             .put_object()
@@ -1948,7 +1945,7 @@ impl Replicator {
         Ok(())
     }
 
-    pub async fn get_metadata(&self, generation: &Uuid) -> Result<Option<(u32, (u32, u32))>> {
+    pub async fn get_metadata(&self, generation: &Uuid) -> Result<Option<Metadata>> {
         let key = format!("{}-{}/.meta", self.db_name, generation);
         if let Ok(obj) = self
             .client
@@ -1958,10 +1955,8 @@ impl Replicator {
             .send()
             .await
         {
-            let mut data = obj.body.collect().await?;
-            let page_size = data.get_u32();
-            let checksum = (data.get_u32(), data.get_u32());
-            Ok(Some((page_size, checksum)))
+            let data = obj.body.collect().await?.into_bytes();
+            Ok(Some(Metadata::decode(&data)?))
         } else {
             Ok(None)
         }
@@ -2191,5 +2186,95 @@ impl std::fmt::Display for CompressionKind {
             CompressionKind::Gzip => write!(f, "gz"),
             CompressionKind::Zstd => write!(f, "zstd"),
         }
+    }
+}
+
+/// What a generation's `.meta` object records about its WAL: the page size,
+/// the WAL header's checksum the first frame's chains from, and the byte order
+/// of every checksum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Metadata {
+    pub page_size: u32,
+    pub checksum: (u32, u32),
+    /// Whether the WAL's checksums are big-endian (magic `0x377f0683`): the
+    /// byte order of the machine that wrote it, not of the one restoring.
+    pub big_endian: bool,
+}
+
+impl Metadata {
+    const WAL_MAGIC: u32 = 0x377f0682;
+
+    /// Page size, checksum, and the WAL's magic number, big-endian, 16 bytes.
+    fn encode(&self) -> Vec<u8> {
+        let mut body = Vec::with_capacity(16);
+        body.extend_from_slice(&self.page_size.to_be_bytes());
+        body.extend_from_slice(&self.checksum.0.to_be_bytes());
+        body.extend_from_slice(&self.checksum.1.to_be_bytes());
+        body.extend_from_slice(&(Self::WAL_MAGIC | self.big_endian as u32).to_be_bytes());
+        body
+    }
+
+    /// Reads what `encode` writes, and the 12 bytes written before the magic
+    /// number was added. Those were verified in the byte order of the machine
+    /// restoring, and still are.
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        let word = |i: usize| -> Result<u32> {
+            data.get(i * 4..i * 4 + 4)
+                .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+                .ok_or_else(|| {
+                    anyhow!("bottomless .meta object is {} bytes, too short", data.len())
+                })
+        };
+        let big_endian = match word(3) {
+            Ok(magic) if magic | 1 == Self::WAL_MAGIC | 1 => magic & 1 == 1,
+            Ok(magic) => bail!("bottomless .meta object has an unknown WAL magic {magic:#x}"),
+            Err(_) => cfg!(target_endian = "big"),
+        };
+        Ok(Metadata {
+            page_size: word(0)?,
+            checksum: (word(1)?, word(2)?),
+            big_endian,
+        })
+    }
+}
+
+#[cfg(test)]
+mod metadata_test {
+    use super::Metadata;
+
+    #[test]
+    fn metadata_round_trips_with_its_byte_order() {
+        for big_endian in [false, true] {
+            let meta = Metadata {
+                page_size: 4096,
+                checksum: (0xdead_beef, 7),
+                big_endian,
+            };
+            let bytes = meta.encode();
+            assert_eq!(bytes.len(), 16);
+            assert_eq!(Metadata::decode(&bytes).unwrap(), meta);
+        }
+    }
+
+    #[test]
+    fn metadata_without_a_magic_number_reads_as_before() {
+        // The 12 bytes written before the magic number was stored: verified in
+        // the restoring machine's byte order, as they always were.
+        let mut old = Vec::new();
+        for word in [4096u32, 1, 2] {
+            old.extend_from_slice(&word.to_be_bytes());
+        }
+        assert_eq!(
+            Metadata::decode(&old).unwrap(),
+            Metadata {
+                page_size: 4096,
+                checksum: (1, 2),
+                big_endian: cfg!(target_endian = "big"),
+            }
+        );
+        assert!(Metadata::decode(&old[..8]).is_err());
+        let mut odd = old.clone();
+        odd.extend_from_slice(&0x1234_5678u32.to_be_bytes());
+        assert!(Metadata::decode(&odd).is_err());
     }
 }

@@ -44,10 +44,19 @@ impl WalFrameHeader {
         )
     }
 
-    pub fn verify(&self, init_crc: (u32, u32), page_data: &[u8]) -> Result<(u32, u32)> {
+    /// Check the frame's checksum, chained from `init_crc`: the WAL header's
+    /// checksum for the first frame, the previous frame's after that.
+    /// `big_endian` is the WAL's checksum byte order (see
+    /// [`WalHeader::big_endian_checksums`]).
+    pub fn verify(
+        &self,
+        init_crc: (u32, u32),
+        page_data: &[u8],
+        big_endian: bool,
+    ) -> Result<(u32, u32)> {
         let mut crc = init_crc;
-        crc = checksum_step(crc, &self.0[0..8]);
-        crc = checksum_step(crc, page_data);
+        crc = checksum_step(crc, &self.0[0..8], big_endian);
+        crc = checksum_step(crc, page_data, big_endian);
         let frame_crc = self.crc();
         if crc == frame_crc {
             Ok(crc)
@@ -104,6 +113,13 @@ pub(crate) struct WalHeader {
 
 impl WalHeader {
     pub const SIZE: u64 = 32;
+
+    /// SQLite writes a WAL's checksums in the byte order of the machine that
+    /// made it, and says which in the magic number's last bit: `0x377f0683`
+    /// big-endian, `0x377f0682` little-endian.
+    pub fn big_endian_checksums(&self) -> bool {
+        self.magic_no & 1 == 1
+    }
 }
 
 impl From<[u8; WalHeader::SIZE as usize]> for WalHeader {
@@ -149,6 +165,11 @@ impl WalFileReader {
 
     pub fn checksum(&self) -> (u32, u32) {
         (self.header.checksum_1, self.header.checksum_2)
+    }
+
+    /// The byte order of this WAL's checksums.
+    pub fn big_endian_checksums(&self) -> bool {
+        self.header.big_endian_checksums()
     }
 
     pub fn frame_size(&self) -> u64 {
@@ -243,28 +264,88 @@ impl AsMut<File> for WalFileReader {
     }
 }
 
-/// Generate or extend an 8 byte checksum based on the data in
-///the `page` and the `init` value. `page` size must be multiple of 8.
-/// FIXME: these computations are performed with host endianness,
-/// which is softly assumed to be little endian for majority of devices.
-/// However, the only proper way to do this is to get the endianness
-/// from the WAL header, as per https://www.sqlite.org/fileformat.html#checksum_algorithm
-pub fn checksum_step(init: (u32, u32), page: &[u8]) -> (u32, u32) {
+/// Generate or extend an 8 byte checksum based on the data in `page` and the
+/// `init` value, as https://www.sqlite.org/fileformat.html#checksum_algorithm
+/// describes. `page` size must be a multiple of 8. The words are read in the
+/// WAL's byte order, `big_endian` or not, which the magic number in its header
+/// gives: not the byte order of the machine doing the reading, which may be
+/// restoring a backup another machine made.
+pub fn checksum_step(init: (u32, u32), page: &[u8], big_endian: bool) -> (u32, u32) {
     debug_assert_eq!(page.len() % 8, 0);
+    let word = |bytes: &[u8]| {
+        let bytes = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        if big_endian {
+            u32::from_be_bytes(bytes)
+        } else {
+            u32::from_le_bytes(bytes)
+        }
+    };
     let (mut s0, mut s1) = init;
-    let page = unsafe { std::slice::from_raw_parts(page.as_ptr() as *const u32, page.len() / 4) };
-    let mut i = 0;
-    while i < page.len() {
-        s0 = s0.wrapping_add(page[i]).wrapping_add(s1);
-        s1 = s1.wrapping_add(page[i + 1]).wrapping_add(s0);
-        i += 2;
+    for pair in page.chunks_exact(8) {
+        s0 = s0.wrapping_add(word(&pair[0..4])).wrapping_add(s1);
+        s1 = s1.wrapping_add(word(&pair[4..8])).wrapping_add(s0);
     }
     (s0, s1)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::wal::WalHeader;
+    use crate::wal::{checksum_step, WalFrameHeader, WalHeader};
+
+    #[test]
+    fn checksums_read_words_in_the_wal_byte_order() {
+        // Two words, 1 and 2 when read big-endian.
+        let data = [0, 0, 0, 1, 0, 0, 0, 2];
+        // s0 = 0 + 1 + 0, s1 = 0 + 2 + s0
+        assert_eq!(checksum_step((0, 0), &data, true), (1, 3));
+        assert_eq!(
+            checksum_step((0, 0), &data, false),
+            (0x0100_0000, 0x0300_0000)
+        );
+        // The same bytes at an odd address give the same sum.
+        let mut shifted = [0u8; 9];
+        shifted[1..].copy_from_slice(&data);
+        assert_eq!(checksum_step((0, 0), &shifted[1..], true), (1, 3));
+    }
+
+    /// A WAL as SQLite writes it on this machine: the header's checksum and
+    /// every frame's verify in the byte order its magic number gives, and not
+    /// in the other.
+    #[test]
+    fn a_wal_written_by_sqlite_verifies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "wal").unwrap();
+        conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        conn.execute_batch("CREATE TABLE t (x);").unwrap();
+        for _ in 0..50 {
+            conn.execute("INSERT INTO t VALUES (randomblob(300))", [])
+                .unwrap();
+        }
+        let wal = std::fs::read(dir.path().join("db-wal")).unwrap();
+        drop(conn);
+
+        let header = WalHeader::from(<[u8; 32]>::try_from(&wal[..32]).unwrap());
+        let big_endian = header.big_endian_checksums();
+        assert_eq!(big_endian, cfg!(target_endian = "big"));
+        assert_eq!(
+            checksum_step((0, 0), &wal[..24], big_endian),
+            (header.checksum_1, header.checksum_2)
+        );
+
+        let page_size = header.page_size as usize;
+        let frame_size = WalFrameHeader::SIZE + page_size;
+        let frames: Vec<_> = wal[32..].chunks_exact(frame_size).collect();
+        assert!(frames.len() > 2, "{} frames", frames.len());
+        let mut crc = (header.checksum_1, header.checksum_2);
+        for frame in &frames {
+            let (head, page) = frame.split_at(WalFrameHeader::SIZE);
+            let head = WalFrameHeader::from(<[u8; 24]>::try_from(head).unwrap());
+            assert!(head.verify(crc, page, !big_endian).is_err());
+            crc = head.verify(crc, page, big_endian).unwrap();
+        }
+    }
 
     #[test]
     fn wal_header_mem_mapping() {

@@ -76,6 +76,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attached.t` in a transaction was enough. Only the WAL that took the slot now
   gives it back.
 
+- **A bottomless backup could only be verified on a machine of the byte order
+  that made it.** SQLite writes a WAL's checksums in its writer's byte order,
+  which the WAL's magic number records; restoring verified them in the
+  restoring machine's order instead, so a backup from a big-endian machine
+  failed verification on a little-endian one and the other way round. Each
+  generation's `.meta` object now records the order (four bytes after the
+  checksum), and a restore verifies in it; older `.meta` objects are read as
+  before. The checksum also read a byte slice as `u32`s through an unsafe cast,
+  undefined behaviour when the slice was not 4-byte aligned, and the restore
+  buffer was uninitialised memory handed out as `&mut [u8]`; both are safe
+  now. This was the last P0 in docs/TECH_DEBT.md.
+
 - **`/beta/listen` announced commits before they were done, and could miss the
   first one.** The announcement went out from SQLite's commit hook, which runs
   before the commit completes, so a listener that read straight away could

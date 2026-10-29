@@ -91,7 +91,7 @@ ON CONFLICT(key) DO UPDATE SET
   value = CAST(
     CASE WHEN expires_at IS NOT NULL AND expires_at <= unixepoch()
          THEN 0 ELSE value END AS INTEGER) + :delta
-RETURNING CAST(value AS INTEGER);
+RETURNING CAST(value AS INTEGER) AS value;
 ```
 
 Decrement is the same with a negative `:delta`.

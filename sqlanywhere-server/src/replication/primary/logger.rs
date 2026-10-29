@@ -692,7 +692,7 @@ impl ReplicationLogger {
     ) -> anyhow::Result<Self> {
         // It is necessary to checkpoint before we restore the replication log, since the WAL may
         // contain pages that are not in the database file.
-        checkpoint_db(&data_path)?;
+        checkpoint_db(&data_path, encryption_config.as_ref())?;
         let mut log_file = log_file.reset()?;
         let snapshot_path = data_path.parent().unwrap().join("snapshots");
         // best effort, there may be no snapshots
@@ -821,9 +821,20 @@ impl ReplicationLogger {
     }
 }
 
-// FIXME: calling rusqlite::Connection's checkpoint here is a bug,
-// we need to always call our virtual WAL methods.
-pub fn checkpoint_db(data_path: &Path) -> anyhow::Result<()> {
+/// Checkpoint the WAL of the database at `data_path` into the file, on a
+/// connection of its own with the default WAL methods.
+///
+/// This runs only at startup, before the replication logger and bottomless
+/// wrap the database's WAL: recovery wants every page in the database file
+/// before it rebuilds the log from it, and bottomless wants the file to be the
+/// source of truth before it starts backing up frames. A database encrypted at
+/// rest is opened with its cipher and key, as every other connection to it is;
+/// without them SQLite reads the encrypted first page as garbage and a primary
+/// that crashed with frames in its WAL cannot start again.
+pub fn checkpoint_db(
+    data_path: &Path,
+    encryption_config: Option<&EncryptionConfig>,
+) -> anyhow::Result<()> {
     let wal_path = match data_path.parent() {
         Some(path) => path.join("data-wal"),
         None => return Ok(()),
@@ -849,6 +860,9 @@ pub fn checkpoint_db(data_path: &Path) -> anyhow::Result<()> {
         } else {
             rusqlite::Connection::open(data_path)
         }?;
+        if let Some(config) = encryption_config {
+            apply_encryption(&conn, config)?;
+        }
         conn.query_row("PRAGMA journal_mode=WAL", (), |_| Ok(()))?;
         tracing::info!("initialized journal_mode=WAL");
         conn.pragma_query(None, "page_size", |row| {
@@ -878,6 +892,30 @@ pub fn checkpoint_db(data_path: &Path) -> anyhow::Result<()> {
             bail!("Checkpoint failed: wal_checkpoint_v2 error code {}", rc)
         }
     }
+}
+
+#[cfg(feature = "encryption")]
+fn apply_encryption(conn: &rusqlite::Connection, config: &EncryptionConfig) -> anyhow::Result<()> {
+    use sqlanywhere_sys::connection::{set_encryption_cipher, set_encryption_key};
+    // SAFETY: the handle belongs to a connection that is open for the whole call.
+    unsafe {
+        ensure!(
+            set_encryption_cipher(conn.handle(), config.cipher_id()) != -1,
+            "failed to set encryption cipher"
+        );
+        ensure!(
+            set_encryption_key(conn.handle(), &config.encryption_key) == rusqlite::ffi::SQLITE_OK,
+            "failed to set encryption key"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "encryption"))]
+fn apply_encryption(_: &rusqlite::Connection, _: &EncryptionConfig) -> anyhow::Result<()> {
+    bail!(
+        "the database is configured with an encryption key, but sqld was built without encryption"
+    )
 }
 
 #[cfg(test)]
@@ -1155,5 +1193,48 @@ mod test {
             Ok(())
         })
         .unwrap();
+    }
+
+    /// A database with frames left in its WAL by a crash (the connection is
+    /// leaked, never closed) is checkpointed into its file.
+    fn crash_then_checkpoint(encryption: Option<EncryptionConfig>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data");
+        let wal = dir.path().join("data-wal");
+        // open_conn takes the namespace directory and opens `data` in it.
+        let conn = open_conn(
+            dir.path(),
+            Sqlite3WalManager::default(),
+            None,
+            encryption.clone(),
+        )
+        .unwrap();
+        conn.execute_batch("CREATE TABLE t (x); INSERT INTO t VALUES (42);")
+            .unwrap();
+        std::mem::forget(conn);
+        assert!(wal.metadata().unwrap().len() > 0, "the WAL holds the write");
+
+        checkpoint_db(&path, encryption.as_ref()).unwrap();
+        assert_eq!(wal.metadata().unwrap().len(), 0, "and now the file does");
+
+        let conn = open_conn(dir.path(), Sqlite3WalManager::default(), None, encryption).unwrap();
+        let x: i64 = conn.query_row("SELECT x FROM t", (), |r| r.get(0)).unwrap();
+        assert_eq!(x, 42);
+    }
+
+    #[test]
+    fn checkpoint_after_a_crash() {
+        crash_then_checkpoint(None);
+    }
+
+    /// The checkpoint opens its own connection; with encryption at rest it
+    /// needs the cipher and key, or the restart after a crash fails.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn checkpoint_an_encrypted_database_after_a_crash() {
+        crash_then_checkpoint(Some(EncryptionConfig::new(
+            sqlanywhere_sys::Cipher::Aes256Cbc,
+            Bytes::from_static(b"correct horse battery staple"),
+        )));
     }
 }

@@ -193,6 +193,18 @@ fn run_tests_encryption(arg: &str) -> Result<()> {
         "embedded_replica",
         arg,
     ])?;
+    // sqld's own encryption at rest: the server's unit tests that need the
+    // cipher, such as checkpointing an encrypted database after a crash.
+    run_cargo(&[
+        "nextest",
+        "run",
+        "-F",
+        "encryption",
+        "-p",
+        "sqlanywhere-server",
+        "--lib",
+        "encrypted",
+    ])?;
 
     Ok(())
 }

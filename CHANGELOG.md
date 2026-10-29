@@ -5,7 +5,22 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-29
+
+Every idea from the review after 0.7.0, built and released. The present can be
+compared with the past, and an embedding says how far its meaning moved; a
+vector can wait for rows to come near it instead of being searched for; a
+large database forks from a copy of its file, and a branch can hold only the
+rows a lens selects, chosen by a predicate or by meaning; a DiskANN index can
+be looked inside and its recall measured in SQL; and the storage contracts
+get a PHP client. Two fixes matter in production: a primary encrypted at rest
+can restart after a crash that left frames in its WAL, and `vector_top_k`
+takes its query vector from another table, a top-k per row.
+
+No file-format changes. New tables appear only when a feature is installed
+(`sqlanywhere_interests`, `sqlanywhere_branch` in a branch). The cache
+contract's Increment now names its column `value`; positional readers see no
+difference.
 
 ### Added
 
@@ -27,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a copied file would offer every row main ever wrote. `diff`, `merge` and
   `pull` treat it exactly like a `fork`; 20,000 rows fork in 16 ms instead of
   309 ms. See [docs/BRANCHES.md](docs/BRANCHES.md#forking-a-large-database).
+- **A PHP client for the storage contracts.** `cargo xtask gen-contracts` now
+  also writes `clients/php/src/`: `Queue`, `Cache` and `PubSub` classes on
+  PDO with `install()` and one typed static method per operation, rows as
+  arrays by column name, multi-statement operations in one transaction
+  (`BEGIN IMMEDIATE` where the contract says so) that rolls back on failure,
+  and payloads bound as blobs. It is generated from the same documents as the
+  Rust API, so `generated_contracts_are_fresh` fails CI when it falls behind,
+  and a new workflow runs its checks on PHP 8.1 and 8.4. A Composer package
+  (`sqlanywhere/contracts`, PSR-4). See [clients/php](clients/php/README.md).
 - **`vector_index_stats('index')`.** A SQL function in the engine that
   describes a DiskANN index as JSON: its parameters with defaults filled in
   (metric, vector type, dimensions, `compress_neighbors`, block size, maximum
@@ -58,8 +82,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `matching(rowid)` shows what a row matches now. See
   [docs/INTERESTS.md](docs/INTERESTS.md).
 
+### Changed
+
+- **The cache contract's Increment names its column `value`.** It returned
+  `CAST(value AS INTEGER)` unaliased, which a client reading columns by name
+  saw as that expression; the result is unchanged.
+
 ### Fixed
 
+- **A primary encrypted at rest could not restart after a crash.** The
+  checkpoint `sqld` runs at startup, before recovery rebuilds the replication
+  log and before bottomless starts, opened the database without its cipher and
+  key; with frames left in the WAL it failed with "file is not a database". It
+  now opens it like every other connection to an encrypted database.
 - **`vector_top_k` could not take its query vector from another table.**
   `FROM q, vector_top_k('idx', q.v, 10)` and the same as a correlated subquery
   failed with "xBestIndex malfunction": the virtual table accepted a plan in
@@ -729,7 +764,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
-[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.8.0...HEAD
+[0.9.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.6.2

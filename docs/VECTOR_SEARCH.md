@@ -309,6 +309,43 @@ neighbours come from a full scan, so measure on a sample. The distance is a
 selected column rather than an `ORDER BY` expression because SQLite does not
 let an `ORDER BY` inside an `IN (...)` subquery refer to the outer query.
 
+**Turning the knob per query.** `search_l` is how many candidates a search
+keeps while it walks the graph. The index has its own (200 unless
+`CREATE INDEX` says otherwise), and a query can ask for another as
+`vector_top_k`'s fourth argument, without rebuilding anything:
+
+```sql
+SELECT id FROM vector_top_k('docs_vec', :query, 10, 64);      -- faster, lower recall
+SELECT id FROM vector_top_k('docs_vec', :query, 10, 400);     -- slower, higher recall
+SELECT id FROM vector_top_k('docs_vec', :query, 10, NULL);    -- the index's own
+```
+
+`hybrid_top_k` passes its seventh argument on the same way
+(`hybrid_top_k(idx, fts, v, q, k, NULL, 64)`; `NULL` keeps `rrf_k`'s default).
+A `search_l` below `k`, the index's own included, is raised to `k`: the k
+best are picked from the candidates, and before, asking an index with
+`search_l=200` for 300 neighbours returned 201.
+
+From Rust, `sqlanywhere::recall` measures recall@k at a `search_l` and finds
+the smallest one that reaches a target, with the table's own rows as queries:
+
+```rust
+let tuning = sqlanywhere::recall::tune(&conn, "docs_vec", 10, 0.9, 100).await?;
+// tuning.search_l: Some(320); tuning.steps: recall at 10, 20, 40, …
+```
+
+On 2000 random 16-dimensional vectors, a cosine index with one-bit neighbours
+and `max_neighbors=8`, 100 queries:
+
+| `search_l` | 10 | 20 | 40 | 80 | 160 | 200 (index) | 320 | 400 |
+|------------|----|----|----|----|-----|-------------|-----|-----|
+| recall@10  | 0.31 | 0.44 | 0.57 | 0.75 | 0.86 | 0.90 | 0.94 | 0.97 |
+
+Every node a larger `search_l` visits is a row read (above), so the cost of
+each step is `rows_read`. Tests:
+[`sqlanywhere/tests/recall.rs`](../sqlanywhere/tests/recall.rs), and
+`hrana::batch::search_l_sets_how_much_a_vector_search_reads` against `sqld`.
+
 ## Reference
 
 | Function | Purpose |
@@ -318,7 +355,7 @@ let an `ORDER BY` inside an `IN (...)` subquery refer to the outer query.
 | `vector_distance_l2(a, b)` | Euclidean (L2) distance |
 | `vector_distance_cos(a, b)` | Cosine distance (0 = identical, 2 = opposite) |
 | `sqlanywhere_vector_idx(col, 'metric=...', 'compress_neighbors=...', ...)` | Declare a DiskANN index in `CREATE INDEX` |
-| `vector_top_k('index_name', query_vec, k)` | ANN search returning the `k` nearest row ids; `query_vec` may be a column of an earlier table in the join |
+| `vector_top_k('index_name', query_vec, k [, search_l])` | ANN search returning the `k` nearest row ids; `query_vec` may be a column of an earlier table in the join; `search_l` overrides the index's for this search |
 | `vector_index_stats('index_name')` | The index's parameters, node and neighbour counts and size, as JSON |
 | `sqlanywhere::embed(text, dims)` (Rust) | Reference lexical embedder → vector literal |
 

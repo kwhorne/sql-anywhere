@@ -88,8 +88,11 @@ engine wherever possible.
       recall@k is measured in plain SQL, now that `vector_top_k` takes its
       query from another table's column. See
       [docs/VECTOR_SEARCH.md](VECTOR_SEARCH.md#6-looking-inside-an-index);
-      verified (`sqlanywhere/tests/vector.rs`). Next: a recall/size knob that
-      picks `compress_neighbors` and `search_l` from a target.
+      verified (`sqlanywhere/tests/vector.rs`). `search_l` is set per query,
+      as `vector_top_k`'s fourth argument, and `sqlanywhere::recall::tune`
+      finds the smallest that reaches a recall target
+      (`sqlanywhere/tests/recall.rs`). Next: the same for
+      `compress_neighbors`, which needs an index rebuilt per candidate.
 - [x] **Hybrid search in one call** — `hybrid_top_k(vector_index, fts_table,
       vector, query, k [, rrf_k])` fuses the DiskANN and FTS5 rankings with
       Reciprocal Rank Fusion inside the engine, returning each row's score and

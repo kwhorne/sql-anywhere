@@ -627,3 +627,51 @@ fn hybrid_top_k_counts_rows_read() {
 
     sim.run().unwrap();
 }
+
+/// `vector_top_k`'s fourth argument sets how many candidates a search keeps,
+/// and so how many DiskANN nodes it reads: rows_read follows it.
+#[test]
+fn search_l_sets_how_much_a_vector_search_reads() {
+    let mut sim = turmoil::Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+    sim.host("primary", super::make_standalone_server);
+    sim.client("client", async {
+        let insert = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 500) \
+            INSERT INTO docs SELECT i, vector32('[' || (i % 7) || ',' || (i % 11) || ',' || (i % 13) || ',' || (1 + i % 5) || ']') FROM n";
+        let search = |search_l: &str| {
+            serde_json::json!({"type": "execute", "stmt": { "sql": format!(
+                "SELECT id FROM vector_top_k('docs_vec', vector32('[1,2,3,4]'), 5, {search_l})"
+            ) }})
+        };
+        let req = serde_json::json!({
+            "requests": [
+                {"type": "execute", "stmt": { "sql": "CREATE TABLE docs (id INTEGER PRIMARY KEY, emb FLOAT32(4))" }},
+                {"type": "execute", "stmt": { "sql": "CREATE INDEX docs_vec ON docs(sqlanywhere_vector_idx(emb))" }},
+                {"type": "execute", "stmt": { "sql": insert }},
+                search("8"),
+                search("200"),
+                search("NULL"),
+            ]
+        });
+        let resp = Client::new()
+            .post("http://primary:8080/v2/pipeline", req)
+            .await
+            .unwrap();
+        let json = resp.json_value().await.unwrap();
+        let results = json["results"].as_array().unwrap();
+        for result in results {
+            assert_eq!(result["type"], "ok", "{result}");
+        }
+        let rows_read = |i: usize| results[i]["response"]["result"]["rows_read"].as_u64().unwrap();
+        let rows = |i: usize| results[i]["response"]["result"]["rows"].as_array().unwrap().len();
+
+        let (narrow, wide, default) = (rows_read(3), rows_read(4), rows_read(5));
+        assert!(narrow < wide, "search_l 8 read {narrow}, 200 read {wide}");
+        // The index's own search_l is 200: NULL leaves it.
+        assert!(default > narrow, "default read {default}, search_l 8 read {narrow}");
+        assert_eq!((rows(3), rows(4), rows(5)), (5, 5, 5));
+        Ok(())
+    });
+    sim.run().unwrap();
+}

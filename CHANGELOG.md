@@ -5,7 +5,23 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-10-29
+
+Search, live results and branches reach the server. Hybrid retrieval is one
+table-valued function, `hybrid_top_k`, instead of a 15-line query; a client
+with no database file of its own waits for `sqld` to push the commits that
+change a live query's result; a `sqld` namespace is branched with one admin
+call and merged back three ways, row by row; and the storage contracts get a
+TypeScript client. Three fixes matter in production: `sqld` no longer aborts
+when a transaction writes to main and reads an attached namespace, commit
+announcements no longer go out before the commit is done, and a bottomless
+backup verifies on a machine of either byte order.
+
+No file-format changes. A bottomless generation's `.meta` object gains four
+bytes after its checksum (the WAL's byte order); older versions read the first
+twelve and ignore them, and this one reads older `.meta` objects as before.
+`vector_top_k` and `hybrid_top_k` return exactly the rows they did; nothing in
+an existing database changes.
 
 ### Added
 
@@ -856,7 +872,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
-[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.9.0...HEAD
+[0.10.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.10.0
 [0.9.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0
 [0.7.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.7.0

@@ -153,6 +153,10 @@ where
         )
         .route("/v1/namespaces/:namespace/at", post(handle_namespace_at))
         .route(
+            "/v1/namespaces/:namespace/branch/:branch",
+            post(handle_namespace_branch),
+        )
+        .route(
             "/v1/namespaces/:namespace/create",
             post(handle_create_namespace),
         )
@@ -551,6 +555,64 @@ async fn handle_namespace_at<C>(
         Err(e) => return Err(e),
     }
     Ok(Json(NamespaceAtResp { namespace: name }))
+}
+
+#[derive(Debug, Serialize)]
+struct NamespaceBranchResp {
+    branch: String,
+    base: String,
+}
+
+/// `POST /v1/namespaces/:namespace/branch/:branch`: two forks of the namespace
+/// for a three-way merge. `{branch}@base` is the namespace as it is now,
+/// read-only; `{branch}` starts from that same state and is writable. Both can
+/// be attached, so the live namespace can compare and merge them
+/// (`sqlanywhere::merge3`). The branch is forked from the base, not from the
+/// live namespace, so a write landing in between cannot set them apart.
+/// Delete both when done.
+async fn handle_namespace_branch<C>(
+    State(app_state): State<Arc<AppState<C>>>,
+    Path((namespace, branch)): Path<(String, String)>,
+) -> crate::Result<Json<NamespaceBranchResp>> {
+    let base = format!("{branch}@base");
+    let from = NamespaceName::from_string(namespace)?;
+    let base_ns = NamespaceName::from_string(base.clone())?;
+    let branch_ns = NamespaceName::from_string(branch.clone())?;
+    let from_store = app_state.namespaces.config_store(from.clone()).await?;
+    let from_config = from_store.get();
+    if from_config.is_shared_schema {
+        return Err(Error::SharedSchemaUsageError(
+            "database cannot be forked from a shared schema".to_string(),
+        ));
+    }
+    let base_config = DatabaseConfig {
+        allow_attach: true,
+        block_writes: true,
+        block_reason: Some(format!("read-only: the base of branch {branch} of {from}")),
+        expires_at: None,
+        ..(*from_config).clone()
+    };
+    let branch_config = DatabaseConfig {
+        allow_attach: true,
+        expires_at: None,
+        ..(*from_config).clone()
+    };
+    app_state
+        .namespaces
+        .fork(from, base_ns.clone(), base_config, None)
+        .await?;
+    if let Err(e) = app_state
+        .namespaces
+        .fork(base_ns.clone(), branch_ns, branch_config, None)
+        .await
+    {
+        // Leave nothing half made.
+        if let Err(cleanup) = app_state.namespaces.destroy(base_ns, true).await {
+            tracing::error!("failed to remove {base} after a failed branch: {cleanup}");
+        }
+        return Err(e);
+    }
+    Ok(Json(NamespaceBranchResp { branch, base }))
 }
 
 async fn dump_stream_from_url<C>(url: &Url, connector: C) -> Result<DumpStream, LoadDumpError>

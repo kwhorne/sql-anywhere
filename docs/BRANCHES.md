@@ -236,13 +236,80 @@ trigger does not run a second time for rows it already handled on main. Rows
 that arrive later through `pull` or `merge` are applied by cr-sqlite as ordinary
 writes, and triggers on the receiving side fire for them.
 
+## Branches of a `sqld` namespace
+
+Everything above runs on cr-sqlite in local files. A database served by `sqld`
+is branched differently: by forking the namespace, and merging back by
+comparing rows three ways. No CRDT, no extension and no history: ordinary
+tables.
+
+```sh
+curl -X POST http://127.0.0.1:9090/v1/namespaces/docs/branch/agent-7
+# {"branch":"agent-7","base":"agent-7@base"}
+```
+
+That makes two forks of `docs` as it is now: `agent-7@base`, read-only, and
+`agent-7`, writable, forked from the base so that a write to `docs` landing in
+between cannot set them apart. The agent works on `agent-7` (its own
+namespace: `http://agent-7.<host>`); `docs` keeps taking writes. Then, from a
+connection to `docs`:
+
+```rust
+use sqlanywhere::merge3::{Merge3, Merged, OnConflict};
+
+let merge = Merge3::new("agent-7@base", "agent-7");
+let plan = merge.diff(&conn).await?;          // what would change, and what collides
+match merge.merge(&conn).await? {             // one IMMEDIATE transaction
+    Merged::Applied(plan) => { /* plan.changes() rows written */ }
+    Merged::Refused(plan) => { /* plan.conflicts(), plan.schema_changes */ }
+}
+```
+
+`diff` compares, table by table, the base with the branch (what the agent
+did) and the base with `docs` (what happened meanwhile), with
+[`compare::table`](../sqlanywhere/src/compare.rs):
+
+| Branch | Live | Result |
+| --- | --- | --- |
+| changed a row | left it alone | the branch's change is applied |
+| updated a row | updated other columns of it | both: the branch's columns are written beside the live ones |
+| changed a row | made it the same | nothing to do |
+| changed a row | changed it differently, or deleted it | a conflict |
+
+A conflict refuses the whole merge by default, which writes nothing.
+`.on_conflict(OnConflict::KeepMain)` applies the rest and leaves those rows
+as they are live; `OnConflict::TakeBranch` makes them what the branch has.
+Rows are written with SQL from the attached branch (`INSERT … SELECT`,
+`UPDATE … SET (…) = (SELECT …)`), so values never leave the server, and
+foreign keys are checked at the commit.
+
+What takes part: the ordinary tables. SQLite's own, this crate's
+(`sqlanywhere_*`), cr-sqlite's, virtual tables and their shadow tables (an
+FTS5 index) are left out, and `.skip("audit")` leaves out more. Leave out any
+table that triggers fill: the rows a merge writes fire the live side's
+triggers, which fill it again. A table created, dropped or given different
+columns on either side refuses the merge, whatever `on_conflict` says.
+
+The same works locally, with file paths in place of namespace names: the base
+and the branch are then two copies of the file taken at one moment (`VACUUM
+INTO`).
+
+Verified: [`sqlanywhere/tests/merge3.rs`](../sqlanywhere/tests/merge3.rs), and
+against `sqld` in `sqlanywhere-server/tests/namespaces`
+(`branch_a_namespace_and_merge_it_back`).
+
 ## Limits
 
 - `fork_file` needs `main` to be a local database, and the copy is a full
   copy: it costs the file's size on disk, not a copy-on-write clone.
-- `merge` and `pull` run against two local connections. Branching a database
-  served by `sqld`, and a `sqld` endpoint for it, are not built yet; that is
-  also what keeps a lens from syncing a laptop with a server today.
+- `merge` and `pull` run against two local connections. A `sqld` namespace is
+  branched by forking it and merged by `merge3`, [above](#branches-of-a-sqld-namespace),
+  which has no lens: syncing a partial branch on a laptop with a server is
+  not built.
+- `merge3` matches rows by key, so two sides that each insert a new row under
+  the next integer key collide; tables both sides insert into want keys that
+  do not come from a counter (random rowids, UUIDs). It reads every table it
+  compares in full, three times over.
 - A lens selects rows, not columns, and does not evict: a partial branch only
   grows until it is forked again.
 - Schema changes on either side after the fork are not carried. Fork again after

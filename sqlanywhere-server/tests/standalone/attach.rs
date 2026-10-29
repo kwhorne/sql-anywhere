@@ -405,3 +405,63 @@ fn compare_with_an_attached_namespace() {
 
     sim.run().unwrap();
 }
+
+/// A transaction that writes to main and reads an attached namespace. The
+/// attached database's WAL goes through the same connection's write slot,
+/// and ending its read must not release the slot main's write holds.
+#[test]
+fn write_main_from_an_attached_namespace() {
+    let mut sim = turmoil::Builder::new()
+        .simulation_duration(Duration::from_secs(1000))
+        .build();
+    sim.host("primary", make_standalone_server);
+    sim.client("test", async {
+        let client = Client::new();
+        client
+            .post(
+                "http://primary:9090/v1/namespaces/live/create",
+                serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        client
+            .post(
+                "http://primary:9090/v1/namespaces/source/create",
+                serde_json::json!({ "allow_attach": true }),
+            )
+            .await
+            .unwrap();
+        let open = |ns: &str| {
+            Database::open_remote_with_connector(
+                format!("http://{ns}.primary:8080"),
+                "",
+                TurmoilConnector,
+            )
+            .unwrap()
+            .connect()
+            .unwrap()
+        };
+        let source = open("source");
+        source.execute("CREATE TABLE t (x)", ()).await?;
+        source.execute("INSERT INTO t VALUES (1), (2)", ()).await?;
+        let live = open("live");
+        live.execute("CREATE TABLE t (x)", ()).await?;
+
+        for behavior in [
+            sqlanywhere::TransactionBehavior::Deferred,
+            sqlanywhere::TransactionBehavior::Immediate,
+        ] {
+            let txn = live.transaction_with_behavior(behavior).await?;
+            txn.execute("ATTACH source AS source", ()).await?;
+            txn.execute("INSERT INTO main.t SELECT x FROM source.t", ())
+                .await?;
+            txn.commit().await?;
+        }
+        // Writes go on after it.
+        live.execute("INSERT INTO t VALUES (3)", ()).await?;
+        let mut rows = live.query("SELECT count(*) FROM t", ()).await?;
+        assert_eq!(rows.next().await?.unwrap().get::<i64>(0)?, 5);
+        Ok(())
+    });
+    sim.run().unwrap();
+}

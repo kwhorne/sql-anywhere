@@ -129,12 +129,21 @@ impl Default for ConnectionManagerInner {
 pub struct ManagedConnectionWalWrapper {
     id: ConnId,
     manager: ConnectionManager,
+    /// Whether this WAL took the slot for a write transaction. A connection
+    /// has a WAL per database, its own and every attached one, each with a
+    /// clone of this wrapper and so the same `id`: only the WAL that took the
+    /// slot may give it back when its transaction ends.
+    holds_slot: bool,
 }
 
 impl ManagedConnectionWalWrapper {
     pub(crate) fn new(manager: ConnectionManager) -> Self {
         let id = manager.inner.next_conn_id.fetch_add(1, Ordering::SeqCst);
-        Self { id, manager }
+        Self {
+            id,
+            manager,
+            holds_slot: false,
+        }
     }
 
     pub fn id(&self) -> ConnId {
@@ -453,6 +462,7 @@ impl WrapWal<InnerWal> for ManagedConnectionWalWrapper {
     fn begin_write_txn(&mut self, wrapped: &mut InnerWal) -> sqlanywhere_sys::wal::Result<()> {
         tracing::debug!("begin write");
         self.acquire()?;
+        self.holds_slot = true;
         match wrapped.begin_write_txn() {
             Ok(_) => {
                 tracing::debug!("transaction acquired");
@@ -465,6 +475,7 @@ impl WrapWal<InnerWal> for ManagedConnectionWalWrapper {
                 if !matches!(e.code, ErrorCode::DatabaseBusy) {
                     // this is not a retriable error
                     tracing::debug!("error acquiring lock, releasing: {e}");
+                    self.holds_slot = false;
                     self.release();
                 } else {
                     let mut lock = self.manager.current.lock();
@@ -549,9 +560,12 @@ impl WrapWal<InnerWal> for ManagedConnectionWalWrapper {
                 ..
             }) = *current
             {
-                // releasing read transaction releases the write lock (see wal.c)
-                if id == self.id {
+                // releasing read transaction releases the write lock (see wal.c),
+                // but only the WAL that holds it: an attached database's WAL
+                // ends its read with the same id while the slot is main's
+                if id == self.id && self.holds_slot {
                     drop(current);
+                    self.holds_slot = false;
                     self.release();
                 }
             }
@@ -563,6 +577,7 @@ impl WrapWal<InnerWal> for ManagedConnectionWalWrapper {
     fn end_write_txn(&mut self, wrapped: &mut InnerWal) -> sqlanywhere_sys::wal::Result<()> {
         wrapped.end_write_txn()?;
         tracing::debug!("end write txn");
+        self.holds_slot = false;
         self.release();
 
         Ok(())
@@ -582,12 +597,13 @@ impl WrapWal<InnerWal> for ManagedConnectionWalWrapper {
         {
             let current = self.manager.current.lock();
             if let Some(slot @ Slot { id, .. }) = *current {
-                if id == self.id {
+                if id == self.id && self.holds_slot {
                     tracing::debug!(
                         id = self.id,
                         "connection closed without releasing lock: {slot:?}"
                     );
                     drop(current);
+                    self.holds_slot = false;
                     self.release()
                 }
             }

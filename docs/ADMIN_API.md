@@ -50,3 +50,15 @@ again returns the same one. With `"ttl_seconds": 3600` the primary deletes it,
 with its backups, an hour after making it; otherwise delete it like any other
 namespace when done. See
 [TIME_TRAVEL.md](TIME_TRAVEL.md).
+
+```HTTP
+POST /v1/namespaces/:namespace/branch/:branch
+```
+
+Branch `:namespace` for a three-way merge: makes `:branch@base`, the namespace
+as it is now, read-only, and `:branch`, writable, forked from that base so
+both start from the same state. Both allow `ATTACH`, so the live namespace can
+compare and merge the branch (`sqlanywhere::merge3`); other settings are the
+source's. Responds `{"branch": ":branch", "base": ":branch@base"}`. Delete
+both namespaces when done. See
+[BRANCHES.md](BRANCHES.md#branches-of-a-sqld-namespace).

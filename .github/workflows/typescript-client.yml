@@ -1,0 +1,41 @@
+name: TypeScript contract client
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "clients/typescript/**"
+      - "docs/contracts/**"
+      - "xtask/src/contracts.rs"
+      - ".github/workflows/typescript-client.yml"
+  pull_request:
+    paths:
+      - "clients/typescript/**"
+      - "docs/contracts/**"
+      - "xtask/src/contracts.rs"
+      - ".github/workflows/typescript-client.yml"
+
+jobs:
+  typescript-client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [ "22", "24" ]
+    name: Node ${{ matrix.node }} contract client
+    defaults:
+      run:
+        working-directory: clients/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+      - run: npm ci
+      - name: Type-check the generated modules and the tests
+        run: npm run typecheck
+      - name: Run the contract API checks
+        run: npm test
+      - name: Build the package
+        run: npm run build && node -e "import('./dist/index.js')"

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A TypeScript client for the contracts.** `cargo xtask gen-contracts` now
+  also writes `clients/typescript/src`: one module per contract (`queue`,
+  `cache`, `pubsub`) with `install`, the statements as constants and one typed
+  async function per operation, taking an object of the operation's parameters
+  (`queue.claim(db, { visibility, queue })`). It has no runtime dependencies:
+  operations run on a `Driver`, with adapters for `@libsql/client` (a `sqld`
+  server over HTTP, or a file) and `node:sqlite`. Operations of several
+  statements run in one transaction through `Driver.batch`, which works over
+  HTTP where separate `BEGIN` and `COMMIT` requests would not; payloads are
+  blobs, passed as bytes or strings and returned as `Uint8Array`. Tested on
+  both adapters in CI on Node 22 and 24, and against a running `sqld` with
+  `SQLD_URL`; CI fails when a contract changes without the client. See
+  [clients/typescript/README.md](clients/typescript/README.md).
+
 - **Live queries over `sqld`: `LiveQuery::wait`.** A client connected to
   `sqld` over HTTP, with no database file of its own, waits for the server to
   announce a commit that changes its result and gets the diff, without

@@ -61,6 +61,10 @@ table below into:
 - [`clients/php/src/`](../../clients/php), the same API for PHP on PDO:
   `Queue::claim($db, $visibility, $queue)` and so on, rows as arrays by column
   name. See [its README](../../clients/php/README.md).
+- [`clients/typescript/src/`](../../clients/typescript), the same API for
+  TypeScript: `queue.claim(db, { visibility, queue })` and so on, on
+  `@libsql/client` (a `sqld` server over HTTP, or a file) or `node:sqlite`. See
+  [its README](../../clients/typescript/README.md).
 - [`contracts.json`](./contracts.json), the same operations as data, for
   generating a client in any other language.
 

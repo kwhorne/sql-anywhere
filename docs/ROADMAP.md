@@ -37,7 +37,10 @@ engine wherever possible.
       without them. Askr can call the contracts instead of transcribing them.
       See [docs/contracts/README.md](contracts/README.md#generated-api).
       The same generator writes a PHP client on PDO (`clients/php`), tested
-      in CI on PHP 8.1 and 8.4. Next: a TypeScript client.
+      in CI on PHP 8.1 and 8.4, and a TypeScript client
+      (`clients/typescript`) with adapters for `@libsql/client` and
+      `node:sqlite`, tested in CI on Node 22 and 24 and locally against
+      `sqld` over HTTP. Next: publishing both packages.
 - [x] **Storage primitives as chapters, not products** — a KV cache with TTL, a
       durable work queue (atomic `UPDATE … RETURNING` claim, at-least-once), and
       pub/sub over the replication log, all composed in plain SQL. See

@@ -3,6 +3,7 @@ use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::types::ObjectAttributes;
 use aws_sdk_s3::Client;
 use aws_smithy_types::date_time::Format;
+use bottomless::replicator::Metadata;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use tokio::io::BufReader;
 
@@ -145,9 +146,8 @@ impl Replicator {
                         println!("\tcreated at (UTC):     {datetime}");
                         println!("\tchange counter:       {counter:?}");
                         println!("\tconsistent WAL frame: {consistent_frame}");
-                        if let Some((page_size, crc)) = m {
-                            println!("\tpage size:            {}", page_size);
-                            println!("\tWAL frame checksum:   {:X}-{:X}", crc.0, crc.1);
+                        if let Some(m) = m {
+                            print_metadata(&m);
                         }
                         if let Some(prev_gen) = parent {
                             println!("\tprevious generation:  {}", prev_gen);
@@ -256,9 +256,8 @@ impl Replicator {
         println!("\tcreated at:           {}", uuid_to_datetime(&generation));
         println!("\tchange counter:       {counter:?}");
         println!("\tconsistent WAL frame: {consistent_frame}");
-        if let Some((page_size, crc)) = meta {
-            println!("\tpage size:            {}", page_size);
-            println!("\tWAL frame checksum:   {:X}-{:X}", crc.0, crc.1);
+        if let Some(meta) = meta {
+            print_metadata(&meta);
         }
         if let Some(prev_gen) = dep {
             println!("\tprevious generation:  {}", prev_gen);
@@ -317,9 +316,13 @@ impl Replicator {
     pub async fn apply_wal_from_local_generation(
         from_dir: impl AsRef<std::path::Path>,
         db: &mut tokio::fs::File,
-        page_size: u32,
-        checksum: (u32, u32),
+        meta: Metadata,
     ) -> Result<u32> {
+        let Metadata {
+            page_size,
+            checksum,
+            big_endian,
+        } = meta;
         use bottomless::transaction_cache::TransactionPageCache;
         use tokio::io::AsyncWriteExt;
 
@@ -327,12 +330,7 @@ impl Replicator {
         const TMP_RESTORE_DIR: &str = ".bottomless.restore.tmp";
 
         let from_dir = from_dir.as_ref();
-        let mut page_buf = {
-            let mut v = Vec::with_capacity(page_size as usize);
-            v.spare_capacity_mut();
-            unsafe { v.set_len(page_size as usize) };
-            v
-        };
+        let mut page_buf = vec![0u8; page_size as usize];
 
         let objs = {
             let mut objs = Vec::new();
@@ -394,7 +392,7 @@ impl Replicator {
                 let pgno = frame.pgno();
                 reader.next_page(&mut page_buf).await?;
                 if let Some(ck) = checksum {
-                    checksum = match frame.verify(ck, &page_buf) {
+                    checksum = match frame.verify(ck, &page_buf, big_endian) {
                         Ok(checksum) => Some(checksum),
                         Err(e) => {
                             println!("ERROR: failed to verify checksum of page {pgno}: {e}, continuing anyway. Checksum will no longer be validated");
@@ -421,16 +419,25 @@ impl Replicator {
 
     pub async fn get_local_metadata(
         from_dir: impl AsRef<std::path::Path>,
-    ) -> Result<Option<(u32, (u32, u32))>> {
-        use bytes::Buf;
-
+    ) -> Result<Option<Metadata>> {
         if let Ok(data) = tokio::fs::read(from_dir.as_ref().join(".meta")).await {
-            let mut data = bytes::Bytes::from(data);
-            let page_size = data.get_u32();
-            let crc = (data.get_u32(), data.get_u32());
-            Ok(Some((page_size, crc)))
+            Ok(Some(Metadata::decode(&data)?))
         } else {
             Ok(None)
         }
     }
+}
+
+fn print_metadata(meta: &Metadata) {
+    println!("\tpage size:            {}", meta.page_size);
+    println!(
+        "\tWAL frame checksum:   {:X}-{:X} ({})",
+        meta.checksum.0,
+        meta.checksum.1,
+        if meta.big_endian {
+            "big-endian"
+        } else {
+            "little-endian"
+        }
+    );
 }

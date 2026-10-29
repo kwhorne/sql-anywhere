@@ -2217,7 +2217,7 @@ impl Metadata {
     /// Reads what `encode` writes, and the 12 bytes written before the magic
     /// number was added. Those were verified in the byte order of the machine
     /// restoring, and still are.
-    fn decode(data: &[u8]) -> Result<Self> {
+    pub fn decode(data: &[u8]) -> Result<Self> {
         let word = |i: usize| -> Result<u32> {
             data.get(i * 4..i * 4 + 4)
                 .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))

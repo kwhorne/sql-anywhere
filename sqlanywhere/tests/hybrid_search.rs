@@ -287,23 +287,61 @@ async fn hybrid_top_k_agrees_with_the_rrf_recipe() {
     .await
     .unwrap();
 
+    // (vector, query, k, rrf_k, vector_weight, fts_weight)
     let cases = [
-        ("[0.4,-0.2,0.1,0,0.3,-0.4,0.2,0.1]", "ownership", 10, 60.0),
+        (
+            "[0.4,-0.2,0.1,0,0.3,-0.4,0.2,0.1]",
+            "ownership",
+            10,
+            60.0,
+            1.0,
+            1.0,
+        ),
         (
             "[-0.1,0.3,0.2,-0.4,0,0.1,-0.2,0.4]",
             "vector OR index",
             25,
             60.0,
+            1.0,
+            1.0,
         ),
         (
             "[0.2,0.2,-0.3,0.1,-0.1,0.4,0,-0.2]",
             "rust AND safety",
             5,
             1.0,
+            1.0,
+            1.0,
         ),
-        ("[0,0,0.5,0.5,-0.5,0,0.1,0]", "replica", 40, 0.0),
+        ("[0,0,0.5,0.5,-0.5,0,0.1,0]", "replica", 40, 0.0, 1.0, 1.0),
+        // Weighted: the keyword ranking counts for three times the vector one,
+        // and the other way round.
+        (
+            "[-0.1,0.3,0.2,-0.4,0,0.1,-0.2,0.4]",
+            "vector OR index",
+            25,
+            60.0,
+            1.0,
+            3.0,
+        ),
+        (
+            "[-0.1,0.3,0.2,-0.4,0,0.1,-0.2,0.4]",
+            "vector OR index",
+            25,
+            60.0,
+            0.7,
+            0.2,
+        ),
+        (
+            "[0.4,-0.2,0.1,0,0.3,-0.4,0.2,0.1]",
+            "ownership",
+            10,
+            5.0,
+            2.5,
+            0.5,
+        ),
     ];
-    for (vector, query, k, rrf_k) in cases {
+    for (vector, query, k, rrf_k, wv, wf) in cases {
         // Each ranker contributes its top k, as hybrid_top_k documents.
         let recipe = rows(
             &conn,
@@ -319,7 +357,7 @@ async fn hybrid_top_k_agrees_with_the_rrf_recipe() {
                  ),
                  ids AS (SELECT id FROM v UNION SELECT id FROM f)
                  SELECT ids.id,
-                        COALESCE(1.0/({rrf_k}+v.vrank),0) + COALESCE(1.0/({rrf_k}+f.frank),0) AS score,
+                        COALESCE({wv:?}/({rrf_k}+v.vrank),0) + COALESCE({wf:?}/({rrf_k}+f.frank),0) AS score,
                         v.vrank, f.frank
                  FROM ids LEFT JOIN v ON v.id = ids.id LEFT JOIN f ON f.id = ids.id
                  ORDER BY score DESC, ids.id
@@ -331,12 +369,16 @@ async fn hybrid_top_k_agrees_with_the_rrf_recipe() {
             &conn,
             &format!(
                 "SELECT id, score, vector_rank, fts_rank FROM hybrid_top_k(
-                     'docs_vec', 'docs_fts', vector32('{vector}'), '{query}', {k}, {rrf_k})"
+                     'docs_vec', 'docs_fts', vector32('{vector}'), '{query}', {k}, {rrf_k},
+                     NULL, {wv}, {wf})"
             ),
         )
         .await;
         assert!(!fused.is_empty(), "{query}: no results");
-        assert_eq!(fused, recipe, "{query} k={k} rrf_k={rrf_k}");
+        assert_eq!(
+            fused, recipe,
+            "{query} k={k} rrf_k={rrf_k} weights={wv},{wf}"
+        );
     }
 
     // rrf_k defaults to 60.
@@ -351,6 +393,75 @@ async fn hybrid_top_k_agrees_with_the_rrf_recipe() {
     )
     .await;
     assert_eq!(explicit, default);
+
+    // Both weights default to 1, given or NULL.
+    let q =
+        "'docs_vec', 'docs_fts', vector32('[0.4,-0.2,0.1,0,0.3,-0.4,0.2,0.1]'), 'ownership', 10";
+    let default = rows(&conn, &format!("SELECT id, score FROM hybrid_top_k({q})")).await;
+    for weights in [
+        "NULL, NULL, 1, 1",
+        "NULL, NULL, NULL, NULL",
+        "60, NULL, 1.0, NULL",
+    ] {
+        assert_eq!(
+            rows(
+                &conn,
+                &format!("SELECT id, score FROM hybrid_top_k({q}, {weights})")
+            )
+            .await,
+            default,
+            "{weights}"
+        );
+    }
+
+    // Doubling both weights doubles every score and keeps the order.
+    let doubled = rows(
+        &conn,
+        &format!("SELECT id, score FROM hybrid_top_k({q}, NULL, NULL, 2, 2)"),
+    )
+    .await;
+    assert_eq!(doubled.len(), default.len());
+    for (d, o) in doubled.iter().zip(&default) {
+        assert_eq!(d[0], o[0]);
+        let (sqlanywhere::Value::Real(d), sqlanywhere::Value::Real(o)) = (&d[1], &o[1]) else {
+            panic!("scores are reals: {d:?} {o:?}");
+        };
+        assert!((d - 2.0 * o).abs() < 1e-12, "{d} vs 2 * {o}");
+    }
+
+    // A weight of 0 leaves its ranker out, as a NULL vector or query does.
+    for (weights, alone) in [
+        (
+            "NULL, NULL, 1, 0",
+            "'docs_vec', 'docs_fts', vector32('[0.4,-0.2,0.1,0,0.3,-0.4,0.2,0.1]'), NULL, 10",
+        ),
+        (
+            "NULL, NULL, 0, 1",
+            "'docs_vec', 'docs_fts', NULL, 'ownership', 10",
+        ),
+    ] {
+        assert_eq!(
+            rows(
+                &conn,
+                &format!(
+                    "SELECT id, score, vector_rank, fts_rank FROM hybrid_top_k({q}, {weights})"
+                )
+            )
+            .await,
+            rows(
+                &conn,
+                &format!("SELECT id, score, vector_rank, fts_rank FROM hybrid_top_k({alone})")
+            )
+            .await,
+            "{weights}"
+        );
+    }
+    assert!(rows(
+        &conn,
+        &format!("SELECT id FROM hybrid_top_k({q}, NULL, NULL, 0, 0)")
+    )
+    .await
+    .is_empty());
 }
 
 #[tokio::test]
@@ -413,6 +524,26 @@ async fn hybrid_top_k_reports_bad_arguments() {
         (
             "SELECT * FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'x', 3, 'sixty')",
             "rrf_k must be a non-negative number",
+        ),
+        (
+            "SELECT * FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'x', 3, 9e999)",
+            "rrf_k must be a non-negative number",
+        ),
+        (
+            "SELECT * FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'x', 3, NULL, NULL, -1)",
+            "vector_weight must be a non-negative number",
+        ),
+        (
+            "SELECT * FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'x', 3, NULL, NULL, 'heavy')",
+            "vector_weight must be a non-negative number",
+        ),
+        (
+            "SELECT * FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'x', 3, NULL, NULL, 1, 9e999)",
+            "fts_weight must be a non-negative number",
+        ),
+        (
+            "SELECT * FROM hybrid_top_k('docs_vec', 'docs_fts', vector32('[1,0,0,0]'), 'x', 3, NULL, NULL, 1, x'00')",
+            "fts_weight must be a non-negative number",
         ),
         (
             "SELECT * FROM hybrid_top_k('docs_vec', 'nope', vector32('[1,0,0,0]'), 'x', 3)",

@@ -191,7 +191,8 @@ Because the same engine ships DiskANN vector search *and* SQLite's FTS5
 full-text index, you can fuse semantic and keyword relevance in a single SQL
 query — the recommended pattern for local-first / edge RAG. `hybrid_top_k` fuses
 the two rankings with Reciprocal Rank Fusion (RRF), so documents strong in
-**both** signals rank highest:
+**both** signals rank highest, and either ranking can be weighted over the
+other:
 
 ```sql
 SELECT d.id, d.title, h.score, h.vector_rank, h.fts_rank

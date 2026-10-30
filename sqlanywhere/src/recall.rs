@@ -33,6 +33,24 @@
 //! over its rows, and the exact neighbours come from a full scan per query:
 //! measure on a sample, not on every row. A search starts from a random node,
 //! so two measurements of the same index differ a little.
+//!
+//! [`tune_compression`] answers the other question, how small the index can
+//! be: it builds the index again with each `compress_neighbors`, measures
+//! each one's size and recall, and rolls every build back.
+//!
+//! ```rust,no_run
+//! # async fn run(conn: sqlanywhere::Connection) -> sqlanywhere::Result<()> {
+//! use sqlanywhere::recall;
+//!
+//! let tuning =
+//!     recall::tune_compression(&conn, "docs_vec", 10, 0.9, 200, &recall::COMPRESSIONS).await?;
+//! for c in &tuning.candidates {
+//!     println!("{:<10} {:>10} bytes  recall@10 {:.3}",
+//!         c.compress_neighbors.as_deref().unwrap_or("none"), c.bytes, c.recall);
+//! }
+//! # Ok(())
+//! # }
+//! ```
 
 use std::collections::HashSet;
 
@@ -60,6 +78,32 @@ pub struct Tuning {
 /// The largest `search_l` [`tune`] tries.
 pub const TUNE_LIMIT: u32 = 4096;
 
+/// The `compress_neighbors` values [`tune_compression`] usually compares:
+/// none (neighbours stored as the column's own type), then smaller and
+/// smaller.
+pub const COMPRESSIONS: [Option<&str>; 4] =
+    [None, Some("float16"), Some("float8"), Some("float1bit")];
+
+/// One `compress_neighbors`, built and measured by [`tune_compression`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Candidate {
+    /// `None`: no `compress_neighbors`.
+    pub compress_neighbors: Option<String>,
+    /// The index's size, as `vector_index_stats` gives it.
+    pub bytes: u64,
+    /// Recall@k at the index's own `search_l`.
+    pub recall: f64,
+}
+
+/// What [`tune_compression`] found.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Compression {
+    /// The smallest candidate that reached the target, or `None` when none did.
+    pub chosen: Option<Candidate>,
+    /// Every candidate, in the order given.
+    pub candidates: Vec<Candidate>,
+}
+
 /// Recall@k of `index` at `search_l` (`None`: the index's own), over `sample`
 /// of the table's rows as queries.
 pub async fn measure(
@@ -70,7 +114,7 @@ pub async fn measure(
     sample: u32,
 ) -> Result<f64> {
     let probe = Probe::new(conn, index, k, sample).await?;
-    probe.recall(search_l).await
+    probe.recall(index, search_l).await
 }
 
 /// The smallest `search_l` at which `index` reaches recall@k of `target`
@@ -92,7 +136,7 @@ pub async fn tune(
     let mut steps = Vec::new();
     let mut search_l = k.max(1);
     loop {
-        let recall = probe.recall(Some(search_l)).await?;
+        let recall = probe.recall(index, Some(search_l)).await?;
         steps.push(Measured { search_l, recall });
         if recall >= target {
             return Ok(Tuning {
@@ -110,10 +154,112 @@ pub async fn tune(
     }
 }
 
+/// Which `compress_neighbors` keeps recall@k of `index` at `target` (0 to 1)
+/// in the fewest bytes. Each candidate is a build of the same index, with the
+/// options its `CREATE INDEX` gave and `compress_neighbors` replaced (`None`
+/// leaves it out), measured at the index's own `search_l` over the same
+/// queries. The builds are made inside a savepoint and rolled back, so the
+/// database is left as it was; each one takes as long as building the index.
+pub async fn tune_compression(
+    conn: &Connection,
+    index: &str,
+    k: u32,
+    target: f64,
+    sample: u32,
+    candidates: &[Option<&str>],
+) -> Result<Compression> {
+    if !(0.0..=1.0).contains(&target) {
+        return Err(Error::Misuse(format!(
+            "recall::tune_compression: target {target} is not between 0 and 1"
+        )));
+    }
+    let probe = Probe::new(conn, index, k, sample).await?;
+    let (table, column) = indexed_column(conn, index).await?;
+    let options: Vec<String> = index_options(conn, index)
+        .await?
+        .into_iter()
+        .filter(|o| {
+            !o.trim_start()
+                .to_ascii_lowercase()
+                .starts_with("compress_neighbors")
+        })
+        .collect();
+
+    conn.execute("SAVEPOINT sqlanywhere_recall_compression", ())
+        .await?;
+    let built = build_candidates(conn, &probe, index, &table, &column, &options, candidates).await;
+    let rolled_back = async {
+        conn.execute("ROLLBACK TO sqlanywhere_recall_compression", ())
+            .await?;
+        conn.execute("RELEASE sqlanywhere_recall_compression", ())
+            .await
+    }
+    .await;
+    let candidates = built?;
+    rolled_back?;
+
+    let chosen = candidates
+        .iter()
+        .filter(|c| c.recall >= target)
+        .min_by_key(|c| c.bytes)
+        .cloned();
+    Ok(Compression { chosen, candidates })
+}
+
+async fn build_candidates(
+    conn: &Connection,
+    probe: &Probe<'_>,
+    index: &str,
+    table: &str,
+    column: &str,
+    options: &[String],
+    candidates: &[Option<&str>],
+) -> Result<Vec<Candidate>> {
+    let mut out = Vec::new();
+    for (n, compress) in candidates.iter().enumerate() {
+        let name = format!("{index}_recall_candidate_{n}");
+        let mut args = vec![ident(column)];
+        args.extend(options.iter().map(|o| literal(o)));
+        if let Some(c) = compress {
+            args.push(literal(&format!("compress_neighbors={c}")));
+        }
+        conn.execute(
+            &format!(
+                "CREATE INDEX {} ON {}(sqlanywhere_vector_idx({}))",
+                ident(&name),
+                ident(table),
+                args.join(", ")
+            ),
+            (),
+        )
+        .await?;
+        let mut rows = conn
+            .query(
+                "SELECT json_extract(vector_index_stats(?1), '$.bytes')",
+                [name.as_str()],
+            )
+            .await?;
+        let bytes: i64 = match rows.next().await? {
+            Some(row) => row.get(0)?,
+            None => return Err(Error::Misuse(format!("recall: no stats for {name}"))),
+        };
+        drop(rows);
+        let recall = probe.recall(&name, None).await?;
+        // One candidate at a time on disk.
+        conn.execute("ROLLBACK TO sqlanywhere_recall_compression", ())
+            .await?;
+        out.push(Candidate {
+            compress_neighbors: compress.map(str::to_string),
+            bytes: bytes as u64,
+            recall,
+        });
+    }
+    Ok(out)
+}
+
 /// The queries and their exact neighbours, worked out once.
 struct Probe<'a> {
     conn: &'a Connection,
-    index: String,
     k: u32,
     /// Each query vector, with the rowids of its exact k nearest rows.
     queries: Vec<(Vec<u8>, HashSet<i64>)>,
@@ -188,21 +334,17 @@ impl<'a> Probe<'a> {
             let ids = ids(conn, &exact, params![vector.clone(), k]).await?;
             queries.push((vector, ids.into_iter().collect()));
         }
-        Ok(Probe {
-            conn,
-            index: index.to_string(),
-            k,
-            queries,
-        })
+        Ok(Probe { conn, k, queries })
     }
 
-    async fn recall(&self, search_l: Option<u32>) -> Result<f64> {
+    /// Recall@k of `index`, which must be on the same column, at `search_l`.
+    async fn recall(&self, index: &str, search_l: Option<u32>) -> Result<f64> {
         let (mut found, mut wanted) = (0usize, 0usize);
         for (vector, exact) in &self.queries {
             let got = ids(
                 self.conn,
                 "SELECT id FROM vector_top_k(?1, ?2, ?3, ?4)",
-                params![self.index.as_str(), vector.clone(), self.k, search_l],
+                params![index, vector.clone(), self.k, search_l],
             )
             .await?;
             found += got.iter().filter(|id| exact.contains(id)).count();
@@ -240,6 +382,61 @@ async fn indexed_column(conn: &Connection, index: &str) -> Result<(String, Strin
     Ok((table, column))
 }
 
+/// The options a vector index's `CREATE INDEX` gave, after the column: the
+/// string literals `'metric=cosine'`, `'max_neighbors=8'` and so on.
+async fn index_options(conn: &Connection, index: &str) -> Result<Vec<String>> {
+    let mut rows = conn
+        .query(
+            "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?1 COLLATE NOCASE",
+            [index],
+        )
+        .await?;
+    let sql: String = match rows.next().await? {
+        Some(row) => row.get::<Option<String>>(0)?.unwrap_or_default(),
+        None => return Err(Error::Misuse(format!("recall: no index named {index}"))),
+    };
+    let marker = "sqlanywhere_vector_idx(";
+    let Some(start) = sql.to_ascii_lowercase().find(marker) else {
+        return Err(Error::Misuse(format!(
+            "recall: {index} is not a vector index"
+        )));
+    };
+    Ok(string_literals(&sql[start + marker.len()..]))
+}
+
+/// The SQL string literals in `sql` up to its first unquoted `)`, unescaped.
+fn string_literals(sql: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                let mut s = String::new();
+                while let Some(c) = chars.next() {
+                    if c == '\'' {
+                        if chars.peek() == Some(&'\'') {
+                            chars.next();
+                            s.push('\'');
+                        } else {
+                            break;
+                        }
+                    } else {
+                        s.push(c);
+                    }
+                }
+                out.push(s);
+            }
+            ')' => break,
+            _ => {}
+        }
+    }
+    out
+}
+
+fn literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
 async fn metric(conn: &Connection, index: &str) -> Result<String> {
     let mut rows = conn
         .query(
@@ -268,4 +465,19 @@ async fn ids(
 
 fn ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_literals_stop_at_the_call() {
+        assert_eq!(
+            string_literals("emb, 'metric=cosine', 'a=it''s' ) WHERE x = 'no'"),
+            vec!["metric=cosine".to_string(), "a=it's".to_string()]
+        );
+        assert!(string_literals("emb)").is_empty());
+        assert_eq!(literal("it's"), "'it''s'");
+    }
 }

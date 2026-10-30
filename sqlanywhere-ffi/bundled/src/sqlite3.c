@@ -220106,6 +220106,7 @@ void vectorIndexStatsFunc(sqlite3_context *context, int argc, sqlite3_value **ar
   char *zSql = NULL;
   sqlite3_str *pOut = NULL;
   VectorIdxParams idxParams;
+  char *zErrMsg = NULL;
   int rc;
   vectorIdxParamsInit(&idxParams, NULL, 0);
   UNUSED_PARAMETER(argc);
@@ -220113,6 +220114,18 @@ void vectorIndexStatsFunc(sqlite3_context *context, int argc, sqlite3_value **ar
   if( sqlite3_value_type(argv[0]) != SQLITE_TEXT ){
     sqlite3_result_error(context, "vector_index_stats: the argument must be the name of a vector index", -1);
     return;
+  }
+  /* The schema may not be loaded: a ROLLBACK TO that undid a schema change
+  ** resets it, and only a statement that reads a table loads it again, which
+  ** SELECT vector_index_stats('x') does not. Without this, the index is not
+  ** found. Loaded as sqlite3_table_column_metadata() loads it. */
+  sqlite3BtreeEnterAll(db);
+  rc = sqlite3Init(db, &zErrMsg);
+  sqlite3BtreeLeaveAll(db);
+  if( rc != SQLITE_OK ){
+    sqlite3_result_error(context, zErrMsg ? zErrMsg : sqlite3ErrStr(rc), -1);
+    sqlite3DbFree(db, zErrMsg);
+    goto out;
   }
   zIdxFullName = (const char*)sqlite3_value_text(argv[0]);
   if( getIndexNameParts(db, zIdxFullName, &zIdxDbSNameAlloc, &zIdxNameAlloc) != SQLITE_OK ){

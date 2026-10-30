@@ -238,15 +238,18 @@ static sqlite3_module vectorModule = {
 };
 
 /*
-** hybrid_top_k(vector_index, fts_table, vector, query, k [, rrf_k [, search_l]])
+** hybrid_top_k(vector_index, fts_table, vector, query, k
+**              [, rrf_k [, search_l [, vector_weight [, fts_weight]]]])
 **
 ** Fuses a vector ranking and an FTS5 keyword ranking with Reciprocal Rank
 ** Fusion: each ranker contributes its top k rows, a row scores
-** 1/(rrf_k + rank) for every ranking it appears in, and the k best scores are
-** returned, best first. A NULL vector or a NULL query leaves its ranker out.
-** search_l is passed to the vector search, as vector_top_k's fourth argument;
-** NULL for rrf_k or search_l means the default. Both rankings must be keyed by
-** the same integer rowid.
+** weight/(rrf_k + rank) for every ranking it appears in, with that ranker's
+** weight, and the k best scores are returned, best first. Both weights are 1
+** unless given, so neither ranker counts for more; a weight of 0, a NULL
+** vector or a NULL query leaves its ranker out. search_l is passed to the
+** vector search, as vector_top_k's fourth argument; NULL for any optional
+** argument means its default. Both rankings must be keyed by the same integer
+** rowid.
 */
 typedef struct HybridHit HybridHit;
 struct HybridHit {
@@ -276,12 +279,14 @@ struct hybridVtab_cursor {
 #define HYBRID_COLUMN_K           4
 #define HYBRID_COLUMN_RRF_K       5
 #define HYBRID_COLUMN_SEARCH_L    6
-#define HYBRID_COLUMN_ID          7
-#define HYBRID_COLUMN_SCORE       8
-#define HYBRID_COLUMN_VECTOR_RANK 9
-#define HYBRID_COLUMN_FTS_RANK    10
+#define HYBRID_COLUMN_VECTOR_WEIGHT 7
+#define HYBRID_COLUMN_FTS_WEIGHT  8
+#define HYBRID_COLUMN_ID          9
+#define HYBRID_COLUMN_SCORE       10
+#define HYBRID_COLUMN_VECTOR_RANK 11
+#define HYBRID_COLUMN_FTS_RANK    12
 
-#define HYBRID_N_ARGS        7
+#define HYBRID_N_ARGS        9
 #define HYBRID_N_REQUIRED    5
 #define HYBRID_RRF_K_DEFAULT 60
 
@@ -296,7 +301,7 @@ static int hybridVtabConnect(
   int rc;
   rc = sqlite3_declare_vtab(db,
     "CREATE TABLE x(vector_index hidden, fts_table hidden, vector hidden, query hidden, k hidden, rrf_k hidden, search_l hidden, "
-    "id, score, vector_rank, fts_rank);"
+    "vector_weight hidden, fts_weight hidden, id, score, vector_rank, fts_rank);"
   );
   if( rc != SQLITE_OK ){
     return rc;
@@ -530,6 +535,24 @@ static int hybridIntArg(sqlite3_value *pArg, const char *zName, int *pOut, char 
   return SQLITE_ERROR;
 }
 
+/* Reads an optional non-negative number argument; absent or NULL keeps *pOut. */
+static int hybridNumberArg(sqlite3_value *pArg, const char *zName, double *pOut, char **pzErrMsg){
+  int eType;
+  double d;
+  if( pArg == NULL || sqlite3_value_type(pArg) == SQLITE_NULL ){
+    return SQLITE_OK;
+  }
+  eType = sqlite3_value_type(pArg);
+  d = sqlite3_value_double(pArg);
+  /* d*0 is NaN for an infinite d, and the comparison is false for a NaN one */
+  if( (eType != SQLITE_INTEGER && eType != SQLITE_FLOAT) || !(d >= 0 && d * 0 == 0) ){
+    *pzErrMsg = sqlite3_mprintf("hybrid_top_k: %s must be a non-negative number", zName);
+    return SQLITE_ERROR;
+  }
+  *pOut = d;
+  return SQLITE_OK;
+}
+
 static int hybridVtabFilter(
   sqlite3_vtab_cursor *pVtabCursor,
   int idxNum, const char *idxStr,
@@ -541,6 +564,7 @@ static int hybridVtabFilter(
   char **pzErrMsg = &pVTab->base.zErrMsg;
   sqlite3_value *apArg[HYBRID_N_ARGS];
   double rrfK = HYBRID_RRF_K_DEFAULT;
+  double vectorWeight = 1.0, ftsWeight = 1.0;
   int i, j, k, rc = SQLITE_OK;
 
   pCur->nHits = 0;
@@ -552,7 +576,7 @@ static int hybridVtabFilter(
   }
   for(i=0; i<HYBRID_N_REQUIRED; i++){
     if( apArg[i] == NULL ){
-      *pzErrMsg = sqlite3_mprintf("hybrid_top_k: expected arguments (vector_index, fts_table, vector, query, k [, rrf_k [, search_l]])");
+      *pzErrMsg = sqlite3_mprintf("hybrid_top_k: expected arguments (vector_index, fts_table, vector, query, k [, rrf_k [, search_l [, vector_weight [, fts_weight]]]])");
       return SQLITE_ERROR;
     }
   }
@@ -567,24 +591,22 @@ static int hybridVtabFilter(
   if( hybridIntArg(apArg[HYBRID_COLUMN_K], "k", &k, pzErrMsg) != SQLITE_OK ){
     return SQLITE_ERROR;
   }
-  if( apArg[HYBRID_COLUMN_RRF_K] != NULL && sqlite3_value_type(apArg[HYBRID_COLUMN_RRF_K]) != SQLITE_NULL ){
-    int eType = sqlite3_value_type(apArg[HYBRID_COLUMN_RRF_K]);
-    rrfK = sqlite3_value_double(apArg[HYBRID_COLUMN_RRF_K]);
-    if( (eType != SQLITE_INTEGER && eType != SQLITE_FLOAT) || !(rrfK >= 0) ){
-      *pzErrMsg = sqlite3_mprintf("hybrid_top_k: rrf_k must be a non-negative number");
-      return SQLITE_ERROR;
-    }
+  if( hybridNumberArg(apArg[HYBRID_COLUMN_RRF_K], "rrf_k", &rrfK, pzErrMsg) != SQLITE_OK
+   || hybridNumberArg(apArg[HYBRID_COLUMN_VECTOR_WEIGHT], "vector_weight", &vectorWeight, pzErrMsg) != SQLITE_OK
+   || hybridNumberArg(apArg[HYBRID_COLUMN_FTS_WEIGHT], "fts_weight", &ftsWeight, pzErrMsg) != SQLITE_OK
+  ){
+    return SQLITE_ERROR;
   }
   if( k == 0 ){
     return SQLITE_OK;
   }
 
-  if( sqlite3_value_type(apArg[HYBRID_COLUMN_VECTOR]) != SQLITE_NULL ){
+  if( vectorWeight > 0 && sqlite3_value_type(apArg[HYBRID_COLUMN_VECTOR]) != SQLITE_NULL ){
     rc = hybridVectorRanking(
       pCur, db, apArg[HYBRID_COLUMN_IDX], apArg[HYBRID_COLUMN_VECTOR], k, apArg[HYBRID_COLUMN_SEARCH_L], pzErrMsg
     );
   }
-  if( rc == SQLITE_OK && sqlite3_value_type(apArg[HYBRID_COLUMN_QUERY]) != SQLITE_NULL ){
+  if( rc == SQLITE_OK && ftsWeight > 0 && sqlite3_value_type(apArg[HYBRID_COLUMN_QUERY]) != SQLITE_NULL ){
     rc = hybridFtsRanking(
       pCur, db, (const char*)sqlite3_value_text(apArg[HYBRID_COLUMN_FTS]), apArg[HYBRID_COLUMN_QUERY], k, pzErrMsg
     );
@@ -608,8 +630,8 @@ static int hybridVtabFilter(
   for(i=0; i<pCur->nHits; i++){
     HybridHit *pHit = &pCur->aHits[i];
     pHit->score = 0.0;
-    if( pHit->vectorRank ) pHit->score += 1.0 / (rrfK + pHit->vectorRank);
-    if( pHit->ftsRank ) pHit->score += 1.0 / (rrfK + pHit->ftsRank);
+    if( pHit->vectorRank ) pHit->score += vectorWeight / (rrfK + pHit->vectorRank);
+    if( pHit->ftsRank ) pHit->score += ftsWeight / (rrfK + pHit->ftsRank);
   }
   qsort(pCur->aHits, pCur->nHits, sizeof(HybridHit), hybridCompareScore);
   if( pCur->nHits > k ){

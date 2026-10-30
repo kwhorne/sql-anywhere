@@ -94,13 +94,14 @@ engine wherever possible.
       (`sqlanywhere/tests/recall.rs`). Next: the same for
       `compress_neighbors`, which needs an index rebuilt per candidate.
 - [x] **Hybrid search in one call** — `hybrid_top_k(vector_index, fts_table,
-      vector, query, k [, rrf_k])` fuses the DiskANN and FTS5 rankings with
-      Reciprocal Rank Fusion inside the engine, returning each row's score and
-      its rank in both; the same answer as the 15-line RRF query, shown equal on
-      a 300-row corpus. See
+      vector, query, k [, rrf_k [, search_l [, vector_weight [, fts_weight]]]])`
+      fuses the DiskANN and FTS5 rankings with Reciprocal Rank Fusion inside
+      the engine, returning each row's score and its rank in both; the same
+      answer as the 15-line RRF query, shown equal on a 300-row corpus, with
+      and without weights. Either ranking can be weighted over the other. See
       [docs/VECTOR_SEARCH.md](VECTOR_SEARCH.md#4-hybrid-search-vector--keyword);
-      verified (`sqlanywhere/tests/hybrid_search.rs`). Next: weighting one
-      ranker over the other.
+      verified (`sqlanywhere/tests/hybrid_search.rs`). Next: learning the
+      weights from relevance judgements.
 
 ### Edge / local-first
 - [x] **CRDT offline merge (experimental)** — the vendored cr-sqlite (`ext/crr`)

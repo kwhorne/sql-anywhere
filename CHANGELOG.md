@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target, with the recall at every step it tried. On 2000 vectors, recall@10
   goes from 0.31 at `search_l` 10 to 0.97 at 400. See
   [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
+- **Weighting one ranking over the other in `hybrid_top_k`.** Its eighth and
+  ninth arguments, `vector_weight` and `fts_weight` (both 1 unless given),
+  scale each ranker's share of a row's score, `weight/(rrf_k + rank)`: where
+  exact terms matter more than meaning, weight the keywords, and the other
+  way round. A weight of 0 leaves its ranker out, as a `NULL` vector or query
+  does. The result is the RRF recipe's with the same weights, shown equal on
+  a 300-row corpus. `rrf_k` now also refuses infinity. See
+  [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#4-hybrid-search-vector--keyword).
 - **A Grafana dashboard for `sqld`, and every metric described.**
   `tools/observability` has a dashboard (statements, errors, per-namespace
   load and size, WAL checkpoints, the tokio runtime) and a compose file that

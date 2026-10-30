@@ -356,7 +356,34 @@ and `max_neighbors=8`, 100 queries:
 | recall@10  | 0.31 | 0.44 | 0.57 | 0.75 | 0.86 | 0.90 | 0.94 | 0.97 |
 
 Every node a larger `search_l` visits is a row read (above), so the cost of
-each step is `rows_read`. Tests:
+each step is `rows_read`.
+
+**How small it can be.** `compress_neighbors` shrinks the index by storing
+each node's neighbours in a smaller type, and costs recall in return; unlike
+`search_l`, it is fixed when the index is built. `recall::tune_compression`
+builds the index again once per candidate, with the options its
+`CREATE INDEX` gave and only `compress_neighbors` changed, measures each
+build's size and recall@k at the index's own `search_l`, and returns the
+smallest that reaches a target:
+
+```rust
+use sqlanywhere::recall;
+
+let c = recall::tune_compression(&conn, "docs_vec", 10, 0.95, 100, &recall::COMPRESSIONS).await?;
+// c.chosen: Some(Candidate { compress_neighbors: Some("float8"), .. })
+```
+
+On the same 2000 vectors (`max_neighbors=8`, `search_l` 200):
+
+| `compress_neighbors` | none | `float16` | `float8` | `float1bit` |
+|----------------------|------|-----------|----------|-------------|
+| bytes                | 1,440,000 | 928,000 | 800,000 | 512,000 |
+| recall@10            | 1.00 | 1.00 | 0.999 | 0.91 |
+
+Every build happens inside a savepoint that is rolled back, so the database
+is left exactly as it was, and it works inside a transaction of your own;
+each build takes as long as building the index, so run it on a copy or at a
+quiet time for a large table. Tests:
 [`sqlanywhere/tests/recall.rs`](../sqlanywhere/tests/recall.rs), and
 `hrana::batch::search_l_sets_how_much_a_vector_search_reads` against `sqld`.
 

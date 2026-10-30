@@ -27,8 +27,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a 300-row corpus. `rrf_k` now also refuses infinity. See
   [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#4-hybrid-search-vector--keyword).
 
+- **How small a vector index can be, measured.**
+  `recall::tune_compression(conn, index, k, target, sample, candidates)`
+  builds the index again once per `compress_neighbors` candidate, with the
+  options its `CREATE INDEX` gave, measures each build's size and recall@k,
+  and returns the smallest that reaches the target. The builds are made in a
+  savepoint and rolled back, so the database is left as it was, inside a
+  transaction of the caller's too. On 2000 vectors: 1.44 MB at recall 1.0
+  uncompressed, 0.80 MB at 0.999 with `float8`, 0.51 MB at 0.91 with
+  `float1bit`. See
+  [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
+
 ### Fixed
 
+- **`vector_index_stats` found no index after a `ROLLBACK TO` that undid a
+  schema change.** Rolling back a schema change (a `CREATE INDEX`, say) to a
+  savepoint resets the connection's schema, and only a statement that reads
+  a table loads it again; `SELECT vector_index_stats('idx')` reads none, so
+  it said "not a vector index" about an index that was there, until some
+  other statement ran. It now loads the schema itself.
 - **`vector_top_k` returned fewer than k rows when k exceeded `search_l`.**
   The k best are picked from the search's candidates, of which there are
   `search_l`: an index with the default 200 asked for 300 neighbours returned

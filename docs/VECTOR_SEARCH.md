@@ -179,7 +179,7 @@ keyword search misses paraphrases. Production retrieval systems combine both.
 
 **How.** SQLite's FTS5 full-text index and the vector index live in the same
 database, so one table-valued function fuses their rankings with **Reciprocal
-Rank Fusion (RRF)** — `score = Σ 1/(rrf_k + rank)` across rankers:
+Rank Fusion (RRF)** — `score = Σ weight/(rrf_k + rank)` across rankers:
 
 ```sql
 SELECT d.id, d.title, h.score, h.vector_rank, h.fts_rank
@@ -188,7 +188,8 @@ JOIN docs d ON d.id = h.id
 ORDER BY h.score DESC;
 ```
 
-`hybrid_top_k(vector_index, fts_table, vector, query, k [, rrf_k])`:
+`hybrid_top_k(vector_index, fts_table, vector, query, k [, rrf_k [, search_l
+[, vector_weight [, fts_weight]]]])`:
 
 - Each ranker contributes its top `k`: the `k` nearest rows of the DiskANN
   index, and the `k` best FTS5 matches by `rank` (bm25). The `k` best fused
@@ -199,6 +200,18 @@ ORDER BY h.score DESC;
   first.
 - `rrf_k` defaults to 60, the usual constant; raise it to flatten the
   contribution of top ranks, lower it to sharpen it.
+- `vector_weight` and `fts_weight` scale each ranker's contribution, and both
+  default to 1. Where exact terms matter more than meaning (product codes,
+  names), weight the keywords; where queries paraphrase, the vectors. Only
+  their ratio changes the order: `2, 1` and `1, 0.5` rank alike, with scores
+  twice as large. A weight of 0 leaves its ranker out, as below:
+
+  ```sql
+  -- keyword matches count three times as much as semantic neighbours
+  SELECT id, score FROM hybrid_top_k('docs_vec', 'docs_fts', :v, :q, 20, NULL, NULL, 1, 3);
+  ```
+- `NULL` for any optional argument means its default, so a later one can be
+  given without the ones before it.
 - A `NULL` vector or a `NULL` query leaves that ranker out, so a search box
   left empty still returns the semantic ranking.
 - `fts_table` is an FTS5 table, optionally schema-qualified (`main.docs_fts`);
@@ -209,7 +222,8 @@ ORDER BY h.score DESC;
   counts as a row read, as for `vector_top_k` (see [§6](#6-looking-inside-an-index)).
 
 It computes exactly what this query does, which is the place to start when you
-want something it does not offer, such as weighting one ranker:
+want something it does not offer (`hybrid_top_k` with weights `wv, wf` is the
+same query with `wv/` and `wf/` in place of each `1.0/`):
 
 ```sql
 WITH v AS (                              -- semantic (vector) ranking

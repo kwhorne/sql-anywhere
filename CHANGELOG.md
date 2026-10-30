@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The k best are picked from the search's candidates, of which there are
   `search_l`: an index with the default 200 asked for 300 neighbours returned
   201, without a word. `search_l` is now raised to k for that search.
+- **Two `sqld` could serve the same data directory.** Nothing stopped a
+  second server started on the same `--db-path`: both appended to each
+  namespace's replication log and wrote its WAL and bottomless backup, so
+  the log's frame numbers diverged under replicas and backups. A server now
+  takes an exclusive `flock` on `<db-path>/.lock` before it writes anything
+  there, and a second one exits naming the process that holds it. The lock
+  is the kernel's, so a crashed server leaves none behind.
 
 ## [0.10.0] - 2026-10-29
 

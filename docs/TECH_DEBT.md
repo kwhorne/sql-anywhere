@@ -10,7 +10,7 @@
 | Area | FIXME | TODO | HACK | XXX | Total |
 |------|-------|------|------|-----|-------|
 | **sqlanywhere** (client library) | 8 | 18 | 0 | 0 | 26 |
-| **sqlanywhere-server** | 17 | 34 | 1 | 1 | 53 |
+| **sqlanywhere-server** | 16 | 34 | 1 | 1 | 52 |
 | **sqlanywhere-hrana** | 0 | 1 | 0 | 0 | 1 |
 | **sqlanywhere-replication** | 2 | 1 | 0 | 0 | 3 |
 | **sqlanywhere-sys** | 2 | 2 | 0 | 0 | 4 |
@@ -18,7 +18,7 @@
 
 ---
 
-## 🔴 FIXME — Known bugs or broken behavior (35)
+## 🔴 FIXME — Known bugs or broken behavior (34)
 
 ### sqlanywhere (client library)
 
@@ -47,7 +47,6 @@
 | `http/user/types.rs` | 97 | Large blob payload could block the main thread |
 | `replication/snapshot.rs` | 190 | Snapshot code not robust enough; unclear error handling |
 | `replication/snapshot_store.rs` | 155 | Blocking I/O in async context (should be async) |
-| `replication/primary/logger.rs` | 109 | Should take a file lock to prevent concurrent writes |
 | `replication/primary/logger.rs` | 397 | Dest path never changes; should be stored/cached |
 | `rpc/proxy.rs` | 558 | Missing tracking of recently disconnected clients |
 | `rpc/proxy.rs` | 688 | Copy-pasted code from `execute()` — extract to helper |
@@ -195,9 +194,12 @@ None open.
   read as before). The sum also cast a `&[u8]` to `&[u32]`, undefined
   behaviour for an unaligned slice such as a frame header's bytes; it reads
   words by value now. Tested against a WAL SQLite writes.
+- `replication/primary/logger.rs` — missing file lock. Nothing stopped a
+  second `sqld` on the same data directory from appending to the same logs.
+  The lock is taken once, on the whole directory (`data_dir_lock.rs`), when
+  the server starts: every namespace's log and WAL under it is covered.
 
 ### P1 — Data integrity
-6. `replication/primary/logger.rs:109` — Missing file lock
 7. `namespace/configurator/primary.rs:133` — Non-atomic namespace creation
 8. `namespace/meta_store.rs:558` — Metastore restore correctness
 9. `replication/snapshot.rs:190` — Snapshot robustness

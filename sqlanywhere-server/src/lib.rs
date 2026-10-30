@@ -68,6 +68,7 @@ pub mod auth;
 mod broadcaster;
 pub mod config;
 pub mod connection;
+mod data_dir_lock;
 pub mod net;
 pub mod rpc;
 pub mod version;
@@ -646,6 +647,8 @@ where
             }
         });
 
+        // Held until this function returns, so before anything is written there.
+        let _data_dir_lock = data_dir_lock::DataDirLock::acquire(&self.path)?;
         init_version_file(&self.path)?;
         maybe_migrate(&self.path)?;
         self.init_sqlite_globals();

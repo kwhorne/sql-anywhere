@@ -106,8 +106,8 @@ impl LogFile {
         max_log_duration: Option<Duration>,
         encryption: Option<FrameEncryptor>,
     ) -> anyhow::Result<Self> {
-        // FIXME: we should probably take a lock on this file, to prevent anybody else to write to
-        // it.
+        // Nobody else writes to this file: the server holds a lock on its whole data directory
+        // (`data_dir_lock`), and a namespace is opened once per server.
         let file_end = file.metadata()?.len();
 
         let header = if file_end == 0 {

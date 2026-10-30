@@ -213,3 +213,127 @@ async fn k_above_search_l_still_returns_k_rows() {
         50
     );
 }
+
+async fn schema(conn: &Connection) -> Vec<(String, String)> {
+    let mut rows = conn
+        .query(
+            "SELECT name, coalesce(sql, '') FROM sqlite_schema ORDER BY name",
+            (),
+        )
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        out.push((row.get(0).unwrap(), row.get(1).unwrap()));
+    }
+    out
+}
+
+async fn stats(conn: &Connection) -> String {
+    let mut rows = conn
+        .query("SELECT vector_index_stats('docs_vec')", ())
+        .await
+        .unwrap();
+    rows.next().await.unwrap().unwrap().get(0).unwrap()
+}
+
+#[tokio::test]
+async fn tune_compression_trades_bytes_for_recall_and_leaves_no_trace() {
+    let conn = corpus(2000).await;
+    let (before, before_stats) = (schema(&conn).await, stats(&conn).await);
+
+    let tuning = recall::tune_compression(&conn, "docs_vec", 10, 0.95, 100, &recall::COMPRESSIONS)
+        .await
+        .unwrap();
+    let names: Vec<_> = tuning
+        .candidates
+        .iter()
+        .map(|c| c.compress_neighbors.as_deref())
+        .collect();
+    assert_eq!(names, recall::COMPRESSIONS);
+    // Each step is smaller, and one-bit neighbours cost recall the others do
+    // not (1.0, 1.0, 0.999 and 0.911 when measured).
+    let c = &tuning.candidates;
+    assert!(c.windows(2).all(|w| w[1].bytes < w[0].bytes), "{tuning:#?}");
+    assert!(c[0].recall >= 0.99, "{tuning:#?}");
+    assert!(c[3].recall < 0.95, "{tuning:#?}");
+    // The candidates keep the index's other options: docs_vec itself is
+    // cosine, max_neighbors=8, float1bit, and so is the last candidate.
+    let mut rows = conn
+        .query(
+            "SELECT json_extract(vector_index_stats('docs_vec'), '$.bytes')",
+            (),
+        )
+        .await
+        .unwrap();
+    let own_bytes: i64 = rows.next().await.unwrap().unwrap().get(0).unwrap();
+    drop(rows);
+    assert_eq!(c[3].bytes, own_bytes as u64, "{tuning:#?}");
+    // The smallest that reaches 0.95 is float8.
+    assert_eq!(
+        tuning
+            .chosen
+            .as_ref()
+            .and_then(|c| c.compress_neighbors.as_deref()),
+        Some("float8"),
+        "{tuning:#?}"
+    );
+
+    // Every build was rolled back: the schema and the index are as they were.
+    assert_eq!(schema(&conn).await, before);
+    assert_eq!(stats(&conn).await, before_stats);
+    assert!(conn.is_autocommit());
+
+    // Any recall reaches 0, so the smallest wins; one-bit alone misses 0.99.
+    let any = recall::tune_compression(&conn, "docs_vec", 10, 0.0, 20, &recall::COMPRESSIONS)
+        .await
+        .unwrap();
+    assert_eq!(
+        any.chosen.and_then(|c| c.compress_neighbors),
+        Some("float1bit".into())
+    );
+    let none = recall::tune_compression(&conn, "docs_vec", 10, 0.99, 100, &[Some("float1bit")])
+        .await
+        .unwrap();
+    assert_eq!(none.chosen, None, "{none:#?}");
+    assert_eq!(none.candidates.len(), 1);
+}
+
+#[tokio::test]
+async fn tune_compression_inside_a_transaction_and_after_a_failed_build() {
+    let conn = corpus(300).await;
+    let before = schema(&conn).await;
+
+    // Inside the caller's transaction: its own write is kept, the builds are not.
+    let tx = conn.transaction().await.unwrap();
+    tx.execute(
+        "INSERT INTO docs VALUES (301, vector32('[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]'))",
+        (),
+    )
+    .await
+    .unwrap();
+    let tuning = recall::tune_compression(&tx, "docs_vec", 5, 0.5, 20, &[None, Some("float8")])
+        .await
+        .unwrap();
+    assert_eq!(tuning.candidates.len(), 2);
+    assert_eq!(count(&tx, "SELECT id FROM docs WHERE id = 301").await, 1);
+    assert_eq!(schema(&tx).await, before);
+    tx.commit().await.unwrap();
+    assert_eq!(count(&conn, "SELECT id FROM docs WHERE id = 301").await, 1);
+
+    // A candidate the engine refuses: the error is returned, and the builds
+    // before it are rolled back too.
+    let err = recall::tune_compression(&conn, "docs_vec", 5, 0.5, 20, &[None, Some("float999")])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("compress_neighbors=float999"), "{err}");
+    assert_eq!(schema(&conn).await, before);
+    assert!(conn.is_autocommit());
+
+    let err = recall::tune_compression(&conn, "docs_vec", 5, 2.0, 20, &recall::COMPRESSIONS)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("not between 0 and 1"), "{err}");
+}

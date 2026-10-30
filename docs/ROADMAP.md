@@ -76,8 +76,9 @@ engine wherever possible.
       embed + quantized DiskANN + FTS5 + hybrid RRF into one runnable retrieval
       pipeline. *(landed post-0.2.0)*
 - [x] **Quantization** — opt-in via `compress_neighbors=` on the index (up to
-      ~5.5× smaller). Next: auto-select a default based on index size and a
-      recall/size knob. *(shipped opt-in; auto-default still open)*
+      ~5.5× smaller), and `recall::tune_compression` picks the smallest that
+      keeps a recall target, measured on the index's own data. Next: an
+      automatic default when an index is created.
 - [x] **Interests: standing vector queries** — register a vector and a
       distance, and every write that puts a row's vector within reach
       publishes on the pub/sub contract, in the same transaction, whoever
@@ -94,8 +95,11 @@ engine wherever possible.
       verified (`sqlanywhere/tests/vector.rs`). `search_l` is set per query,
       as `vector_top_k`'s fourth argument, and `sqlanywhere::recall::tune`
       finds the smallest that reaches a recall target
-      (`sqlanywhere/tests/recall.rs`). Next: the same for
-      `compress_neighbors`, which needs an index rebuilt per candidate.
+      (`sqlanywhere/tests/recall.rs`).
+      `recall::tune_compression` does the same for `compress_neighbors`: it
+      builds the index once per candidate inside a savepoint, measures size
+      and recall, rolls every build back, and returns the smallest that
+      reaches the target.
 - [x] **Hybrid search in one call** — `hybrid_top_k(vector_index, fts_table,
       vector, query, k [, rrf_k [, search_l [, vector_weight [, fts_weight]]]])`
       fuses the DiskANN and FTS5 rankings with Reciprocal Rank Fusion inside

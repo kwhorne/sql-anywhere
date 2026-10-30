@@ -574,3 +574,49 @@ async fn vector_top_k_takes_its_query_from_another_table() {
     assert_eq!(joined, expected);
     assert_eq!(correlated, expected);
 }
+
+/// A `ROLLBACK TO` that undoes a schema change resets the schema, and only a
+/// statement that reads a table loads it again. `vector_index_stats` reads
+/// none, so it used to find no index at all until something else did:
+/// "not a vector index" for an index that was there all along.
+#[tokio::test]
+async fn vector_index_stats_after_a_schema_change_is_rolled_back() {
+    let conn = conn().await;
+    conn.execute(
+        "CREATE TABLE pts (id INTEGER PRIMARY KEY, v FLOAT32(2))",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("CREATE INDEX pts_idx ON pts(sqlanywhere_vector_idx(v))", ())
+        .await
+        .unwrap();
+    conn.execute(
+        "INSERT INTO pts VALUES (1, vector32('[1,0]')), (2, vector32('[0,1]'))",
+        (),
+    )
+    .await
+    .unwrap();
+    let nodes = "SELECT json_extract(vector_index_stats('pts_idx'), '$.nodes')";
+    assert_eq!(int(&conn, nodes).await, 2);
+
+    for undo in ["ROLLBACK TO s", "ROLLBACK"] {
+        let begin = if undo == "ROLLBACK" {
+            "BEGIN"
+        } else {
+            "SAVEPOINT s"
+        };
+        conn.execute(begin, ()).await.unwrap();
+        conn.execute(
+            "CREATE INDEX other ON pts(sqlanywhere_vector_idx(v, 'compress_neighbors=float8'))",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(undo, ()).await.unwrap();
+        assert_eq!(int(&conn, nodes).await, 2, "after {undo}");
+        if undo == "ROLLBACK TO s" {
+            conn.execute("RELEASE s", ()).await.unwrap();
+        }
+    }
+}

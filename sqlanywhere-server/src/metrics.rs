@@ -39,7 +39,7 @@ pub static STREAM_HANDLES_COUNT: Lazy<Gauge> = Lazy::new(|| {
 });
 pub static NAMESPACE_LOAD_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     const NAME: &str = "sqlanywhere_server_namespace_load_latency";
-    describe_histogram!(NAME, "latency is us when loading a namespace");
+    describe_histogram!(NAME, "time to load a namespace, in seconds");
     register_histogram!(NAME)
 });
 pub static CONNECTION_CREATE_TIME: Lazy<Histogram> = Lazy::new(|| {

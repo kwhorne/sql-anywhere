@@ -1,0 +1,8 @@
+apiVersion: 1
+
+providers:
+  - name: sqlanywhere
+    folder: SQL Anywhere
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

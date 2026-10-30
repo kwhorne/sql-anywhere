@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target, with the recall at every step it tried. On 2000 vectors, recall@10
   goes from 0.31 at `search_l` 10 to 0.97 at 400. See
   [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
+- **A Grafana dashboard for `sqld`, and every metric described.**
+  `tools/observability` has a dashboard (statements, errors, per-namespace
+  load and size, WAL checkpoints, the tokio runtime) and a compose file that
+  runs `sqld`, Prometheus and Grafana with it loaded:
+  `docker compose -f tools/observability/docker-compose.yml up`.
+  [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) describes every metric,
+  with its type, labels and unit. A test scrapes a real `sqld` and fails
+  when the dashboard names a metric it does not export, or it exports one the
+  page does not describe.
 
 ### Fixed
 
@@ -39,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolved `ATTACH` against it: "Namespace `x` doesn't exist". It also kept
   that first store alive for good. Each store now makes its own, holding the
   store weakly.
+- **`sqlanywhere_server_user_http_fault` labelled its protocol `protcol`.**
+  It is `protocol` now, as on `sqlanywhere_server_user_http_response`; a
+  query grouping by the old label needs the new name.
 
 ## [0.10.0] - 2026-10-29
 

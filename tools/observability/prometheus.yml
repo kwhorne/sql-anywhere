@@ -1,0 +1,10 @@
+# Scrapes sqld's admin API, where /metrics lives. sqld exports metrics only
+# when started with --admin-listen-addr (and without --disable-metrics).
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: sqld
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["sqld:9090"]

@@ -53,7 +53,7 @@ pub(crate) fn response<B>(res: &Response<B>, latency: Duration, span: &Span) {
         );
 
         if status.is_server_error() {
-            metrics::increment_counter!("sqlanywhere_server_user_http_fault", "protcol" => "http");
+            metrics::increment_counter!("sqlanywhere_server_user_http_fault", "protocol" => "http");
         }
     } else {
         let grpc = GrpcErrorsAsFailures::new().with_success(GrpcCode::FailedPrecondition);
@@ -61,7 +61,7 @@ pub(crate) fn response<B>(res: &Response<B>, latency: Duration, span: &Span) {
         let code = match grpc.classify_response(res) {
             ClassifiedResponse::Ready(Ok(())) => "0".to_string(),
             ClassifiedResponse::Ready(Err(GrpcFailureClass::Code(code))) => {
-                metrics::increment_counter!("sqlanywhere_server_user_http_fault", "protcol" => "grpc");
+                metrics::increment_counter!("sqlanywhere_server_user_http_fault", "protocol" => "grpc");
                 code.to_string()
             }
             ClassifiedResponse::Ready(Err(GrpcFailureClass::Error(_))) => return,
@@ -99,5 +99,5 @@ pub(crate) fn eos(trailers: Option<&HeaderMap>, _duration: Duration, _span: &Spa
 }
 
 pub(crate) fn failure<F>(_: F, _: Duration, _: &Span) {
-    metrics::increment_counter!("sqlanywhere_server_user_http_fault", "protcol" => "http");
+    metrics::increment_counter!("sqlanywhere_server_user_http_fault", "protocol" => "http");
 }

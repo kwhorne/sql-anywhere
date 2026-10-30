@@ -174,8 +174,15 @@ engine wherever possible.
       `SQLANYWHERE_API_ATLEAST(V)` guard, so an extension built against a newer
       header cannot read past an older host's thunk. Verified
       (`sqlanywhere-sqlite3/test/rust_suite/src/extension_abi.rs`).
-- [ ] **OpenTelemetry / Prometheus dashboards** — ready-made metrics + tracing
-      export for `sqld`. *(low–medium effort)*
+- [x] **Prometheus metrics and a Grafana dashboard** — every metric `sqld`
+      exports is described in [docs/OBSERVABILITY.md](OBSERVABILITY.md), and
+      `tools/observability` has a dashboard (statements, errors,
+      per-namespace load and size, checkpoints, the runtime) with Prometheus
+      and Grafana provisioned by one `docker compose up`. A test starts a real
+      `sqld` and fails when the dashboard names a metric it does not export,
+      or it exports one the page does not describe
+      (`sqlanywhere-server/tests/observability.rs`). Next: OpenTelemetry
+      tracing export.
 - [x] **Querying the past** — `POST /v1/namespaces/:ns/at` turns any moment in
       the bottomless backup into a read-only namespace that the live one can
       `ATTACH`, so history and the present are compared, and deleted rows

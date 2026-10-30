@@ -1,0 +1,909 @@
+{
+  "uid": "sqld-overview",
+  "title": "SQL Anywhere sqld",
+  "tags": [
+    "sqlanywhere",
+    "sqld"
+  ],
+  "description": "One sqld or many: statements, errors, per-namespace load and size, checkpoints and the tokio runtime, from sqld's /metrics.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "datasource",
+        "label": "Prometheus",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "type": "query",
+        "name": "instance",
+        "label": "Instance",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values(sqlanywhere_server_count, instance)",
+          "refId": "instance"
+        },
+        "definition": "label_values(sqlanywhere_server_count, instance)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {},
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "namespace",
+        "label": "Namespace",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values(sqlanywhere_server_storage{instance=~\"$instance\"}, namespace)",
+          "refId": "namespace"
+        },
+        "definition": "label_values(sqlanywhere_server_storage{instance=~\"$instance\"}, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".+",
+        "current": {},
+        "refresh": 2,
+        "sort": 1,
+        "description": "All is .+, not .*: the per-namespace counters also have a series without a namespace label, which .* would match."
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Server",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Servers up",
+      "description": "sqld processes reporting sqlanywhere_server_count.",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(sqlanywhere_server_count{instance=~\"$instance\"})",
+          "legendFormat": "servers"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Open connections",
+      "description": "Database connections open now (sqlanywhere_server_concurrent_connections).",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(sqlanywhere_server_concurrent_connections{instance=~\"$instance\"})",
+          "legendFormat": "connections"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Statements per second",
+      "description": "Read and write statements executed (sqlanywhere_server_reads_count, sqlanywhere_server_writes_count).",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(rate(sqlanywhere_server_reads_count{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "reads"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "sum(rate(sqlanywhere_server_writes_count{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "writes"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Statement execution time",
+      "description": "Quantiles of the time to execute one statement, per instance: the exporter writes summaries, which cannot be aggregated across instances, so this shows the worst instance.",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max(sqlanywhere_server_statement_execution_time{instance=~\"$instance\", quantile=\"0.5\"})",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max(sqlanywhere_server_statement_execution_time{instance=~\"$instance\", quantile=\"0.99\"})",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP responses",
+      "description": "Responses of the user API by status (sqlanywhere_server_user_http_response).",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (status) (rate(sqlanywhere_server_user_http_response{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Statement errors",
+      "description": "Statements that failed, by Hrana error code (sqlanywhere_server_hrana_step_errors): SQL_INPUT_ERROR is a bad statement, SQLITE_CONSTRAINT a violated constraint, and so on.",
+      "id": 7,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (code) (rate(sqlanywhere_server_hrana_step_errors{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{code}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bytes returned",
+      "description": "Bytes of values returned to clients (sqlanywhere_server_returned_bytes).",
+      "id": 8,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(rate(sqlanywhere_server_returned_bytes_sum{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "returned"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Namespaces",
+      "id": 9,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Queries per second",
+      "description": "Queries per namespace (sqlanywhere_server_query_count).",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (namespace) (rate(sqlanywhere_server_query_count{instance=~\"$instance\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Mean query time",
+      "description": "Total query time over query count, per namespace (sqlanywhere_server_query_latency counts milliseconds).",
+      "id": 11,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (namespace) (rate(sqlanywhere_server_query_latency{instance=~\"$instance\", namespace=~\"$namespace\"}[$__rate_interval])) / sum by (namespace) (rate(sqlanywhere_server_query_count{instance=~\"$instance\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rows read and written",
+      "description": "Rows read and written per namespace (sqlanywhere_server_rows_read, sqlanywhere_server_rows_written); a vector search counts every DiskANN node it visits as a row read.",
+      "id": 12,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (namespace) (rate(sqlanywhere_server_rows_read{instance=~\"$instance\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} read"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "sum by (namespace) (rate(sqlanywhere_server_rows_written{instance=~\"$instance\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{namespace}} written"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Storage",
+      "description": "Database size per namespace, excluding frames not yet checkpointed from the WAL (sqlanywhere_server_storage).",
+      "id": 13,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (namespace) (sqlanywhere_server_storage{instance=~\"$instance\", namespace=~\"$namespace\"})",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Replication index",
+      "description": "The last frame number written per namespace (sqlanywhere_server_current_frame_no): on a replica, how far it has replicated.",
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max by (namespace) (sqlanywhere_server_current_frame_no{instance=~\"$instance\", namespace=~\"$namespace\"})",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Storage engine",
+      "id": 15,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "WAL checkpoints",
+      "description": "WAL checkpoints per second and the slowest instance's p99 checkpoint time (sqlanywhere_server_wal_checkpoint_count, sqlanywhere_server_wal_checkpoint_time).",
+      "id": 16,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(rate(sqlanywhere_server_wal_checkpoint_count{instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "checkpoints/s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max(sqlanywhere_server_wal_checkpoint_time{instance=~\"$instance\", quantile=\"0.99\"})",
+          "legendFormat": "p99 time (s)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Connection setup",
+      "description": "p99 time to open a database connection, worst instance (sqlanywhere_server_connection_create_time).",
+      "id": 17,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max(sqlanywhere_server_connection_create_time{instance=~\"$instance\", quantile=\"0.99\"})",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Statement memory",
+      "description": "p99 memory used by a prepared statement, worst instance (sqlanywhere_server_statement_mem_used_bytes).",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max(sqlanywhere_server_statement_mem_used_bytes{instance=~\"$instance\", quantile=\"0.99\"})",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Runtime",
+      "id": 19,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokio threads",
+      "description": "Worker and blocking threads of the server's tokio runtime.",
+      "id": 20,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max(tokio_runtime_num_workers{instance=~\"$instance\"})",
+          "legendFormat": "workers"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max(tokio_runtime_num_blocking_threads{instance=~\"$instance\"})",
+          "legendFormat": "blocking"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "max(tokio_runtime_num_idle_blocking_threads{instance=~\"$instance\"})",
+          "legendFormat": "idle blocking"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokio queues",
+      "description": "Tasks waiting for a blocking thread, and tasks scheduled from outside the runtime; a queue that keeps growing means the server is saturated.",
+      "id": 21,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max(tokio_runtime_blocking_queue_depth{instance=~\"$instance\"})",
+          "legendFormat": "blocking queue"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max(tokio_runtime_injection_queue_depth{instance=~\"$instance\"})",
+          "legendFormat": "injection queue"
+        }
+      ]
+    }
+  ]
+}

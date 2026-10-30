@@ -117,6 +117,15 @@ container networking level.
 Defines the GRPC listen address and port for sqld. Primarily used for
 inter-node communication. Recommended to leave this on default.
 
+### `SQLD_ADMIN_LISTEN_ADDR`
+
+**default:** unset (no admin API)
+
+The admin API's listen address, for example `0.0.0.0:9090`. It serves
+`/metrics` for Prometheus as well as namespace management, so expose it only
+on a private network. See [OBSERVABILITY.md](OBSERVABILITY.md) for a Grafana
+dashboard and a compose file that runs it.
+
 ## Docker Compose
 
 Simple docker compose for local development:

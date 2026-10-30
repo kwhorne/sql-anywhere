@@ -362,6 +362,7 @@ in-repo specs and guides below are the source references:
 - [Live queries](docs/LIVE_QUERIES.md) — a result that keeps itself current and returns a row-level diff
 - [Interests](docs/INTERESTS.md) — standing vector queries: publish an event when a row's vector lands near one you registered
 - [Querying the past](docs/TIME_TRAVEL.md) — any moment in the bottomless backup as a read-only namespace you can `ATTACH`
+- [Observability](docs/OBSERVABILITY.md) — `sqld`'s Prometheus metrics, every one described, and a Grafana dashboard you can run in one command
 - [Storage contracts](docs/contracts/README.md) — the queue / cache / pub-sub SQL as executable specs, compiled to a typed API
 - [User guide](docs/USER_GUIDE.md) · [Design overview](docs/DESIGN.md) · [Consistency model](docs/CONSISTENCY_MODEL.md)
 - Protocol specs: [Hrana 3](docs/HRANA_3_SPEC.md), [HTTP v2](docs/HTTP_V2_SPEC.md), [Admin API](docs/ADMIN_API.md)

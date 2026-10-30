@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqlanywhere-contracts"
+version = "0.0.0"
+description = "The SQL Anywhere storage contracts (queue, cache, pub/sub) as a typed Python API, generated from docs/contracts."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[tool.setuptools]
+packages = ["sqlanywhere_contracts"]
+
+[tool.setuptools.package-data]
+sqlanywhere_contracts = ["py.typed"]

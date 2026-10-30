@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `float1bit`. See
   [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
 
+- **A Python client for the storage contracts.** `cargo xtask
+  gen-contracts` now also writes `clients/python/sqlanywhere_contracts`, the
+  queue, cache and pub/sub contracts as typed Python functions
+  (`queue.claim(db, visibility=30, queue="mail")`), on the standard
+  library's `sqlite3` or on `sqld` over HTTP, with no dependencies. An
+  operation of several statements is one Hrana batch over HTTP, each step
+  run only if the one before succeeded. Tested on Python 3.9 and 3.13 and
+  against `sqld`; see [clients/python](clients/python/README.md).
+
 ### Fixed
 
 - **`vector_index_stats` found no index after a `ROLLBACK TO` that undid a

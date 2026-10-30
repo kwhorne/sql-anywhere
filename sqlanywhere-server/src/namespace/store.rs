@@ -5,7 +5,6 @@ use async_lock::RwLock;
 use chrono::NaiveDateTime;
 use futures::TryFutureExt;
 use moka::future::Cache;
-use once_cell::sync::OnceCell;
 use tokio::task::JoinSet;
 use tokio::time::{Duration, Instant};
 use tokio_stream::wrappers::BroadcastStream;
@@ -366,18 +365,17 @@ impl NamespaceStore {
         .await
     }
 
+    /// How a connection to one of this store's namespaces finds the namespace
+    /// it `ATTACH`es: in this store, not in the first one the process made.
+    /// The store owns the namespaces that hold this function, so it holds the
+    /// store weakly; once the store is gone, there is nothing to attach.
     fn resolve_attach_fn(&self) -> ResolveNamespacePathFn {
-        static FN: OnceCell<ResolveNamespacePathFn> = OnceCell::new();
-        FN.get_or_init(|| {
-            Arc::new({
-                let store = self.clone();
-                move |ns: &NamespaceName| {
-                    tokio::runtime::Handle::current()
-                        .block_on(store.with(ns.clone(), |ns| ns.path.clone()))
-                }
-            })
+        let store = Arc::downgrade(&self.inner);
+        Arc::new(move |ns: &NamespaceName| {
+            let inner = store.upgrade().ok_or(Error::NamespaceStoreShutdown)?;
+            let store = NamespaceStore { inner };
+            tokio::runtime::Handle::current().block_on(store.with(ns.clone(), |ns| ns.path.clone()))
         })
-        .clone()
     }
 
     pub(crate) async fn make_namespace(

@@ -465,3 +465,61 @@ fn write_main_from_an_attached_namespace() {
     });
     sim.run().unwrap();
 }
+
+/// `ATTACH` finds the namespace in its own server's store. Two servers run
+/// one after the other in one process (as tests and anything embedding sqld
+/// do), each with a `src` of its own; the second used to resolve `src` in the
+/// first server's store, long shut down: "Namespace `src` doesn't exist".
+#[test]
+fn each_server_in_a_process_attaches_its_own_namespaces() {
+    for round in 1..=2i64 {
+        let mut sim = turmoil::Builder::new()
+            .simulation_duration(Duration::from_secs(1000))
+            .build();
+
+        sim.host("primary", make_standalone_server);
+
+        sim.client("test", async move {
+            let client = Client::new();
+            for (name, config) in [
+                ("src", serde_json::json!({ "allow_attach": true })),
+                ("dst", serde_json::json!({})),
+            ] {
+                assert!(client
+                    .post(
+                        &format!("http://primary:9090/v1/namespaces/{name}/create"),
+                        config,
+                    )
+                    .await
+                    .unwrap()
+                    .status()
+                    .is_success());
+            }
+
+            let src = Database::open_remote_with_connector(
+                "http://src.primary:8080",
+                "",
+                TurmoilConnector,
+            )?
+            .connect()?;
+            src.execute("CREATE TABLE t (round)", ()).await?;
+            src.execute("INSERT INTO t VALUES (?1)", [round]).await?;
+
+            let dst = Database::open_remote_with_connector(
+                "http://dst.primary:8080",
+                "",
+                TurmoilConnector,
+            )?
+            .connect()?;
+            let tx = dst.transaction().await?;
+            tx.execute("ATTACH src AS src", ()).await?;
+            let mut rows = tx.query("SELECT round FROM src.t", ()).await?;
+            assert_eq!(rows.next().await?.unwrap().get::<i64>(0)?, round);
+            assert!(rows.next().await?.is_none());
+
+            Ok(())
+        });
+
+        sim.run().unwrap();
+    }
+}

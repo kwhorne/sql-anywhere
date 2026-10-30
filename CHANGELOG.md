@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes an exclusive `flock` on `<db-path>/.lock` before it writes anything
   there, and a second one exits naming the process that holds it. The lock
   is the kernel's, so a crashed server leaves none behind.
+- **`ATTACH` in a second server in one process found the first server's
+  namespaces.** The function a connection uses to find the namespace it
+  attaches was cached process-wide, holding the first `NamespaceStore` the
+  process made, so every later server (tests, anything embedding sqld)
+  resolved `ATTACH` against it: "Namespace `x` doesn't exist". It also kept
+  that first store alive for good. Each store now makes its own, holding the
+  store weakly.
 
 ## [0.10.0] - 2026-10-29
 

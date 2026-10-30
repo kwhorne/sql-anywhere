@@ -5,7 +5,24 @@ All notable changes to SQL Anywhere are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.0] - 2026-10-30
+
+Vector search becomes something to tune with numbers instead of guesses.
+`search_l` is set per query, `sqlanywhere::recall` measures what it buys
+against an exact search over the table's own rows, and `tune_compression`
+finds the smallest index that still reaches a recall target; `hybrid_top_k`
+weights one ranking over the other. `sqld` gets a Grafana dashboard with every
+metric it exports described, and the storage contracts a Python client. One
+fix matters in production: two `sqld` can no longer serve the same data
+directory, which made the replication log's frame numbers diverge.
+
+No file-format changes. `vector_top_k` and `hybrid_top_k` called as before
+return the rows they did, except that a `vector_top_k` asking for more rows
+than the index's `search_l` now gets k of them instead of `search_l` + 1. A
+second `sqld` on a `--db-path` that is in use exits at startup; on a
+filesystem without `flock` the server warns and runs unlocked, as before. The
+`sqlanywhere_server_user_http_fault` metric's label is renamed from `protcol`
+to `protocol`, so a query that grouped by the old name needs the new one.
 
 ### Added
 
@@ -35,7 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with its type, labels and unit. A test scrapes a real `sqld` and fails
   when the dashboard names a metric it does not export, or it exports one the
   page does not describe.
-
 - **How small a vector index can be, measured.**
   `recall::tune_compression(conn, index, k, target, sample, candidates)`
   builds the index again once per `compress_neighbors` candidate, with the
@@ -46,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uncompressed, 0.80 MB at 0.999 with `float8`, 0.51 MB at 0.91 with
   `float1bit`. See
   [docs/VECTOR_SEARCH.md](docs/VECTOR_SEARCH.md#6-looking-inside-an-index).
-
 - **A Python client for the storage contracts.** `cargo xtask
   gen-contracts` now also writes `clients/python/sqlanywhere_contracts`, the
   queue, cache and pub/sub contracts as typed Python functions
@@ -953,7 +968,7 @@ built on SQLite, maintained by [Elyra](https://elyracode.com/sqlanywhere).
 - Original project README, set the workspace and C-library version to `0.1.0`,
   and published the `v0.1.0` tag and GitHub release.
 
-[Unreleased]: https://github.com/kwhorne/sql-anywhere/compare/v0.10.0...HEAD
+[0.11.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.11.0
 [0.10.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.10.0
 [0.9.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.9.0
 [0.8.0]: https://github.com/kwhorne/sql-anywhere/releases/tag/v0.8.0

@@ -1,0 +1,40 @@
+name: Python contract client
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "clients/python/**"
+      - "docs/contracts/**"
+      - "xtask/src/contracts.rs"
+      - ".github/workflows/python-client.yml"
+  pull_request:
+    paths:
+      - "clients/python/**"
+      - "docs/contracts/**"
+      - "xtask/src/contracts.rs"
+      - ".github/workflows/python-client.yml"
+
+jobs:
+  python-client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: [ "3.9", "3.13" ]
+    name: Python ${{ matrix.python }} contract client
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Type-check the generated package
+        run: python -m pip install mypy==1.19.1 && python -m mypy --strict sqlanywhere_contracts
+      - name: Run the contract API checks
+        run: python -m unittest discover -s tests -v
+      - name: Install the package and import it
+        run: |
+          python -m pip install .
+          cd / && python -c "import sqlanywhere_contracts as c; print(c.queue.VERSION, c.__all__)"

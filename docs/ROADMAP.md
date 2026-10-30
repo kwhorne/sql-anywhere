@@ -40,7 +40,10 @@ engine wherever possible.
       in CI on PHP 8.1 and 8.4, and a TypeScript client
       (`clients/typescript`) with adapters for `@libsql/client` and
       `node:sqlite`, tested in CI on Node 22 and 24 and locally against
-      `sqld` over HTTP. Next: publishing both packages.
+      `sqld` over HTTP, and a Python client (`clients/python`) on `sqlite3`
+      or on `sqld` over HTTP with the standard library alone, type-checked
+      with `mypy --strict` and tested in CI on Python 3.9 and 3.13. Next:
+      publishing the packages.
 - [x] **Storage primitives as chapters, not products** — a KV cache with TTL, a
       durable work queue (atomic `UPDATE … RETURNING` claim, at-least-once), and
       pub/sub over the replication log, all composed in plain SQL. See

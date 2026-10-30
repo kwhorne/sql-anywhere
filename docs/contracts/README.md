@@ -65,6 +65,10 @@ table below into:
   TypeScript: `queue.claim(db, { visibility, queue })` and so on, on
   `@libsql/client` (a `sqld` server over HTTP, or a file) or `node:sqlite`. See
   [its README](../../clients/typescript/README.md).
+- [`clients/python/sqlanywhere_contracts/`](../../clients/python), the same
+  API for Python: `queue.claim(db, visibility=30, queue="mail")` and so on,
+  on the standard library's `sqlite3` or on `sqld` over HTTP, with no
+  dependencies. See [its README](../../clients/python/README.md).
 - [`contracts.json`](./contracts.json), the same operations as data, for
   generating a client in any other language.
 
